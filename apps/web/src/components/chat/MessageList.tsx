@@ -133,8 +133,8 @@ export function MessageList({ conversation }: { conversation: ConversationDTO })
               >
                 <MediaMessage
                   message={message}
-                  onOpen={(url, kind) =>
-                    setLightbox({ url, kind, viewOnce: false })
+                  onOpen={(url, kind, attachmentId) =>
+                    setLightbox({ url, kind, viewOnce: false, attachmentId })
                   }
                   onViewOnce={(attachment) => void openViewOnce(message, attachment)}
                 />

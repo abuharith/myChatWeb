@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type MouseEvent } from 'react';
 import type { AttachmentDTO, MessageDTO } from '@voidlink/shared';
 import { cn } from '../../../lib/cn';
 import { formatBytes } from '../../../lib/format';
@@ -61,7 +61,7 @@ function MediaImage({
   onOpen,
 }: {
   attachment: AttachmentDTO;
-  onOpen: (url: string, kind: 'IMAGE' | 'VIDEO') => void;
+  onOpen: (url: string, kind: 'IMAGE' | 'VIDEO', attachmentId: string) => void;
 }) {
   const [loaded, setLoaded] = useState(false);
   const { url, refresh } = useAttachmentUrls(attachment);
@@ -71,7 +71,7 @@ function MediaImage({
     // A photo that never loaded is likely holding an expired token; re-sign
     // before handing the URL to the lightbox.
     const fresh = loaded ? null : await refresh(true);
-    onOpen(fresh?.url ?? url, 'IMAGE');
+    onOpen(fresh?.url ?? url, 'IMAGE', attachment.id);
   };
 
   return (
@@ -111,14 +111,14 @@ function MediaVideo({
   onOpen,
 }: {
   attachment: AttachmentDTO;
-  onOpen: (url: string, kind: 'IMAGE' | 'VIDEO') => void;
+  onOpen: (url: string, kind: 'IMAGE' | 'VIDEO', attachmentId: string) => void;
 }) {
   const { url, thumbnailUrl, refresh } = useAttachmentUrls(attachment);
   if (!url) return null;
 
   const open = async () => {
     const fresh = await refresh(true);
-    onOpen(fresh?.url ?? url, 'VIDEO');
+    onOpen(fresh?.url ?? url, 'VIDEO', attachment.id);
   };
 
   return (
@@ -155,12 +155,28 @@ function MediaVideo({
 }
 
 function FileRow({ attachment }: { attachment: AttachmentDTO }) {
-  if (!attachment.url) return null;
+  const { url, refresh } = useAttachmentUrls(attachment);
+  if (!url) return null;
+
+  const open = async (event: MouseEvent<HTMLAnchorElement>) => {
+    event.preventDefault();
+    // Open the tab inside the click gesture, then point it at a fresh signed
+    // URL once the refresh resolves (a later window.open would be blocked).
+    const target = window.open('', '_blank');
+    if (target) target.opener = null;
+    const fresh = await refresh(true);
+    const destination = fresh?.url ?? url;
+    if (target) target.location.replace(destination);
+    else window.location.assign(destination);
+  };
+
   return (
     <a
-      href={attachment.url}
+      href={url}
+      onClick={(event) => void open(event)}
       target="_blank"
       rel="noreferrer"
+      aria-label={`Open shared ${attachment.mimeType} file`}
       className="flex w-[250px] max-w-full items-center gap-2.5 border border-[color:var(--hairline)] bg-black/25 px-3 py-2.5"
     >
       <span className="flex h-8 w-8 shrink-0 items-center justify-center border border-[color:var(--hairline)] text-[color:var(--titan-gold-300)]">
@@ -187,7 +203,7 @@ export function MediaMessage({
   onViewOnce,
 }: {
   message: MessageDTO;
-  onOpen: (url: string, kind: 'IMAGE' | 'VIDEO') => void;
+  onOpen: (url: string, kind: 'IMAGE' | 'VIDEO', attachmentId: string) => void;
   onViewOnce: (attachment: AttachmentDTO) => void;
 }) {
   if (message.attachments.length === 0) return null;

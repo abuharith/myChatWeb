@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
+import type { AttachmentUrlsDTO } from '@voidlink/shared';
+import { api } from '../../../lib/api';
 import { cn } from '../../../lib/cn';
 import { DustDissolve } from './DustDissolve';
 
@@ -7,6 +9,8 @@ export interface LightboxItem {
   url: string;
   kind: 'IMAGE' | 'VIDEO';
   viewOnce: boolean;
+  /** Set for normal media so a failed load can request fresh signed URLs. */
+  attachmentId?: string;
 }
 
 export function Lightbox({
@@ -20,6 +24,8 @@ export function Lightbox({
 }) {
   const [burning, setBurning] = useState(false);
   const [zoom, setZoom] = useState(false);
+  const [src, setSrc] = useState<string | null>(null);
+  const retriedRef = useRef(false);
   const closeRef = useRef<() => void>(() => {});
 
   const close = useCallback(() => {
@@ -39,6 +45,8 @@ export function Lightbox({
     if (!item) return;
     setBurning(false);
     setZoom(false);
+    setSrc(item.url);
+    retriedRef.current = false;
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const onKeyDown = (event: KeyboardEvent) => {
@@ -55,6 +63,23 @@ export function Lightbox({
     setBurning(false);
     onClose();
   }, [onClose]);
+
+  // The lightbox can outlive the signature it was opened with (for example a
+  // paused video), so recover once from the same refresh endpoint.
+  const recover = useCallback(async () => {
+    if (!item?.attachmentId || item.viewOnce || retriedRef.current) return;
+    retriedRef.current = true;
+    try {
+      const data = await api.get<AttachmentUrlsDTO>(
+        `/v1/attachments/${item.attachmentId}/url`,
+      );
+      setSrc(data.url);
+    } catch {
+      // Keep the player on the original URL; the error is already visible.
+    }
+  }, [item]);
+
+  const mediaSrc = src ?? item?.url ?? '';
 
   if (!item && !burning) return null;
 
@@ -73,7 +98,7 @@ export function Lightbox({
             </p>
             <div className="flex items-center gap-2">
               <a
-                href={item.url}
+                href={mediaSrc}
                 download
                 aria-label="Download media"
                 className="flex h-9 w-9 items-center justify-center border border-[color:var(--hairline)] text-bone/60 transition-colors hover:text-[color:var(--titan-gold-300)]"
@@ -97,8 +122,9 @@ export function Lightbox({
 
           {item.kind === 'IMAGE' ? (
             <img
-              src={item.url}
+              src={mediaSrc}
               alt="Shared media"
+              onError={() => void recover()}
               onClick={() => setZoom((value) => !value)}
               className={cn(
                 'max-h-[82vh] max-w-[94vw] cursor-zoom-in object-contain transition-transform duration-300',
@@ -107,10 +133,11 @@ export function Lightbox({
             />
           ) : (
             <video
-              src={item.url}
+              src={mediaSrc}
               controls
               autoPlay
               playsInline
+              onError={() => void recover()}
               className="max-h-[82vh] max-w-[94vw] object-contain"
             />
           )}
