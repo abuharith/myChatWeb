@@ -1,0 +1,250 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *,
+  *::before,
+  *::after {
+    border-color: var(--hairline);
+  }
+
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  body {
+    margin: 0;
+    background: var(--void-black);
+    color: var(--bone);
+    font-family: var(--font-ui);
+    font-size: var(--text-base);
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+    overflow-x: hidden;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: 0.04em;
+  }
+
+  ::selection {
+    background: rgba(123, 47, 190, 0.55);
+    color: #fff;
+  }
+
+  :focus-visible {
+    outline: none;
+    box-shadow: var(--focus-ring);
+    border-radius: 2px;
+  }
+
+  input,
+  textarea,
+  button {
+    font: inherit;
+  }
+
+  /* Void scrollbar */
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(201, 162, 39, 0.35) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+
+  *::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: linear-gradient(180deg, rgba(201, 162, 39, 0.4), rgba(123, 47, 190, 0.4));
+    border-radius: 99px;
+    border: 1px solid rgba(5, 3, 10, 0.9);
+  }
+}
+
+@layer components {
+  /* Stone + metal glass */
+  .glass {
+    background: var(--glass);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--inner-glow);
+    backdrop-filter: blur(var(--blur-panel)) saturate(125%);
+    -webkit-backdrop-filter: blur(var(--blur-panel)) saturate(125%);
+  }
+
+  .glass-heavy {
+    background: var(--glass-heavy);
+    border: 1px solid var(--hairline);
+    box-shadow: var(--inner-glow), var(--shadow-plate);
+    backdrop-filter: blur(calc(var(--blur-panel) + 6px)) saturate(120%);
+    -webkit-backdrop-filter: blur(calc(var(--blur-panel) + 6px)) saturate(120%);
+  }
+
+  /* Film grain — applied as an overlay layer */
+  .grain-layer {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+    opacity: var(--noise-opacity);
+    mix-blend-mode: overlay;
+    pointer-events: none;
+  }
+
+  /* Chamfered armour plates */
+  .chamfer-sm {
+    clip-path: polygon(
+      var(--chamfer-sm) 0,
+      100% 0,
+      100% calc(100% - var(--chamfer-sm)),
+      calc(100% - var(--chamfer-sm)) 100%,
+      0 100%,
+      0 var(--chamfer-sm)
+    );
+  }
+
+  .chamfer {
+    clip-path: polygon(
+      var(--chamfer-md) 0,
+      100% 0,
+      100% calc(100% - var(--chamfer-md)),
+      calc(100% - var(--chamfer-md)) 100%,
+      0 100%,
+      0 var(--chamfer-md)
+    );
+  }
+
+  .chamfer-lg {
+    clip-path: polygon(
+      var(--chamfer-lg) 0,
+      100% 0,
+      100% calc(100% - var(--chamfer-lg)),
+      calc(100% - var(--chamfer-lg)) 100%,
+      0 100%,
+      0 var(--chamfer-lg)
+    );
+  }
+
+  /* Gold inscription text */
+  .gold-text {
+    background: var(--grad-gold-text);
+    -webkit-background-clip: text;
+    background-clip: text;
+    color: transparent;
+    letter-spacing: 0.06em;
+  }
+
+  /* Bubbles: a 1px gold rim around a clipped fill */
+  .bubble-shell-sent {
+    padding: 1px;
+    background: linear-gradient(
+      150deg,
+      rgba(242, 212, 114, 0.55),
+      rgba(201, 162, 39, 0.18) 42%,
+      rgba(123, 47, 190, 0.45)
+    );
+  }
+
+  .bubble-fill-sent {
+    background: var(--grad-titan);
+  }
+
+  .bubble-shell-received {
+    padding: 1px;
+    background: linear-gradient(
+      160deg,
+      rgba(201, 162, 39, 0.34),
+      rgba(237, 231, 246, 0.06) 45%,
+      rgba(201, 162, 39, 0.12)
+    );
+  }
+
+  .bubble-fill-received {
+    background: rgba(20, 16, 32, 0.82);
+    backdrop-filter: blur(6px);
+  }
+
+  .bubble-sent-shape {
+    clip-path: polygon(
+      0 0,
+      100% 0,
+      100% calc(100% - 14px),
+      calc(100% - 14px) 100%,
+      0 100%
+    );
+  }
+
+  .bubble-received-shape {
+    clip-path: polygon(14px 0, 100% 0, 100% 100%, 0 100%, 0 14px);
+  }
+
+  /* Hexagonal avatar frame */
+  .hex-frame {
+    clip-path: polygon(50% 0%, 95% 25%, 95% 75%, 50% 100%, 5% 75%, 5% 25%);
+  }
+
+  /* Gem dock socket */
+  .gem-socket {
+    background: radial-gradient(circle at 32% 24%, #2f2742, #0b0713 72%);
+    box-shadow:
+      inset 0 1px 0 rgba(237, 231, 246, 0.1),
+      inset 0 -2px 6px rgba(0, 0, 0, 0.8),
+      0 0 0 1px rgba(201, 162, 39, 0.22);
+  }
+
+  /* Light sweep for forged-metal buttons */
+  .sweep {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .sweep::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      105deg,
+      transparent 35%,
+      rgba(242, 212, 114, 0.22) 50%,
+      transparent 65%
+    );
+    transform: translateX(-140%);
+    transition: transform 620ms var(--ease-inertia);
+    pointer-events: none;
+    z-index: 1;
+  }
+
+  .sweep:hover::after,
+  .sweep:focus-visible::after {
+    transform: translateX(140%);
+  }
+
+  /* Hairline rule that fades at both ends */
+  .rule-fade {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--hairline-strong), transparent);
+  }
+}
+
+@layer utilities {
+  .text-inscribed {
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    font-size: var(--text-xs);
+    color: var(--bone-dim);
+  }
+
+  .text-balance {
+    text-wrap: balance;
+  }
+}

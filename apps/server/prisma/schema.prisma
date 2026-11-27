@@ -1,0 +1,930 @@
+// VoidLink — canonical data model (Phase 1)
+// Postgres 16 · Prisma 6
+// Conventions:
+//   cuid ids, snake_case tables via @@map, soft-delete via deletedAt,
+//   timestamps are UTC timestamptz(3).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Enums
+// ─────────────────────────────────────────────────────────────
+
+enum UserRole {
+  USER
+  MODERATOR
+  ADMIN
+}
+
+enum PresenceStatus {
+  ONLINE
+  AWAY
+  DND
+  OFFLINE
+}
+
+enum CallPermission {
+  EVERYONE
+  CONTACTS
+  NOBODY
+}
+
+enum StoryVisibility {
+  CONTACTS
+  CLOSE_CIRCLE
+  ONLY_ME
+}
+
+enum DevicePlatform {
+  WEB
+  IOS
+  ANDROID
+  DESKTOP
+}
+
+enum ConversationType {
+  DIRECT
+  GROUP
+}
+
+enum ParticipantRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum NotificationLevel {
+  ALL
+  MENTIONS
+  MUTED
+}
+
+enum MessageType {
+  TEXT
+  IMAGE
+  VIDEO
+  AUDIO
+  VOICE
+  FILE
+  SYSTEM
+  CALL
+  STORY_REPLY
+}
+
+enum ReceiptState {
+  SENT
+  DELIVERED
+  READ
+}
+
+enum AttachmentKind {
+  IMAGE
+  VIDEO
+  AUDIO
+  VOICE
+  FILE
+}
+
+enum ScanStatus {
+  PENDING
+  CLEAN
+  INFECTED
+  FAILED
+}
+
+enum UploadStatus {
+  PENDING
+  READY
+  REJECTED
+  EXPIRED
+}
+
+enum CallKind {
+  AUDIO
+  VIDEO
+}
+
+enum CallScope {
+  DIRECT
+  GROUP
+}
+
+enum CallStatus {
+  RINGING
+  ACTIVE
+  ENDED
+  MISSED
+  DECLINED
+  BUSY
+  FAILED
+}
+
+enum CallEndReason {
+  HANGUP
+  DECLINED
+  MISSED
+  BUSY
+  CANCELED
+  TIMEOUT
+  NETWORK
+  KICKED
+  ERROR
+}
+
+enum CallParticipantState {
+  INVITED
+  RINGING
+  JOINED
+  LEFT
+  DECLINED
+  MISSED
+  DISCONNECTED
+}
+
+enum ConnectionQuality {
+  EXCELLENT
+  GOOD
+  FAIR
+  POOR
+  UNKNOWN
+}
+
+enum StoryKind {
+  IMAGE
+  VIDEO
+  TEXT
+}
+
+enum ReportCategory {
+  SPAM
+  HARASSMENT
+  NUDITY
+  VIOLENCE
+  IMPERSONATION
+  SCAM
+  OTHER
+}
+
+enum ReportStatus {
+  OPEN
+  REVIEWING
+  RESOLVED
+  DISMISSED
+}
+
+enum NotificationType {
+  MESSAGE
+  MENTION
+  REACTION
+  CALL_MISSED
+  CALL_INCOMING
+  STORY
+  CONTACT_REQUEST
+  SYSTEM
+}
+
+enum ModerationActionType {
+  BAN
+  UNBAN
+  WARN
+  DELETE_MESSAGE
+  DISMISS_REPORT
+}
+
+// ─────────────────────────────────────────────────────────────
+// Identity
+// ─────────────────────────────────────────────────────────────
+
+model User {
+  id              String    @id @default(cuid())
+  username        String    @unique @db.VarChar(32)
+  displayName     String    @db.VarChar(64)
+  email           String    @unique @db.VarChar(254)
+  emailVerifiedAt DateTime?
+  passwordHash    String?
+  googleId        String?   @unique
+
+  avatarUrl       String?
+  avatarBlurhash  String?
+  bannerUrl       String?
+  bio             String?   @db.VarChar(280)
+  statusText      String?   @db.VarChar(120)
+
+  presence        PresenceStatus @default(OFFLINE)
+  lastSeenAt      DateTime?
+  role            UserRole       @default(USER)
+
+  bannedAt        DateTime?
+  banReason       String?
+  deletedAt       DateTime?
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  settings        UserSettings?
+  devices         Device[]
+  sessions        Session[]
+  identityKey     IdentityKey?
+  preKeys         PreKey[]
+  keyEnvelopes    KeyEnvelope[]
+
+  contacts        Contact[] @relation("ContactOwner")
+  contactOf       Contact[] @relation("ContactTarget")
+  blocks          Block[]   @relation("Blocker")
+  blockedBy       Block[]   @relation("Blocked")
+
+  participants    Participant[]
+  conversationsCreated Conversation[] @relation("ConversationCreator")
+  messages        Message[]
+  receipts        MessageReceipt[]
+  messageHides    MessageHide[]
+  messageEdits    MessageEdit[]
+  reactions       Reaction[]
+
+  callsInitiated  Call[]              @relation("CallInitiator")
+  callParticipants CallParticipant[]
+  callsEnded      Call[]              @relation("CallEnder")
+
+  stories         Story[]
+  storyViews      StoryView[]
+
+  reportsFiled    Report[]  @relation("ReportReporter")
+  reportsReceived Report[]  @relation("ReportTarget")
+  reportsHandled  Report[]  @relation("ReportHandler")
+
+  invitesCreated  ConversationInvite[]
+  pinning         Message[] @relation("MessagePinnedBy")
+
+  pushSubscriptions PushSubscription[]
+  notifications     Notification[]
+  moderationActions ModerationAction[] @relation("ModerationActor")
+  moderationTargets ModerationAction[] @relation("ModerationTarget")
+
+  @@index([presence])
+  @@index([deletedAt])
+  /// Fuzzy contact search (pg_trgm). The index name is fixed by Prisma and
+  /// created by the search migration with exactly this name.
+  @@index([username(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@index([displayName(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("users")
+}
+
+model UserSettings {
+  id                String  @id @default(cuid())
+  userId            String  @unique
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // privacy
+  readReceipts      Boolean        @default(true)
+  lastSeenVisible   Boolean        @default(true)
+  whoCanCall        CallPermission @default(CONTACTS)
+  whoCanMessage     CallPermission @default(EVERYONE)
+  storyVisibility   StoryVisibility @default(CONTACTS)
+
+  // appearance / a11y
+  themeIntensity    Float   @default(1)     // 0.6 – 1.4 multiplier on glow/gradient
+  reducedMotion     Boolean @default(false)
+  lowPowerMode      Boolean @default(false)
+  ambientHum        Boolean @default(false)
+  grainEnabled      Boolean @default(true)
+
+  // audio
+  masterVolume      Float   @default(0.7)
+  soundPack         String  @default("titan") // titan | monolith | silent
+  soundOnMessage    Boolean @default(true)
+  soundOnCall       Boolean @default(true)
+  soundOnSend       Boolean @default(true)
+
+  // notifications
+  pushEnabled       Boolean @default(true)
+  desktopEnabled    Boolean @default(true)
+  dndStartsAt       String? // "22:00"
+  dndEndsAt         String? // "07:00"
+
+  // calls
+  preferredCameraId String?
+  preferredMicId    String?
+  preferredSpeakerId String?
+  noiseSuppression  Boolean @default(true)
+  echoCancellation  Boolean @default(true)
+
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  @@map("user_settings")
+}
+
+model Device {
+  id            String         @id @default(cuid())
+  userId        String
+  user          User           @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  name          String         @db.VarChar(80)
+  platform      DevicePlatform @default(WEB)
+  userAgent     String?        @db.VarChar(512)
+  pushEnabled   Boolean        @default(false)
+  identityKey   String?        // base64 device signing key (E2EE)
+  lastActiveAt  DateTime       @default(now())
+  revokedAt     DateTime?
+
+  sessions      Session[]
+  keyEnvelopes  KeyEnvelope[]
+  pushSubscriptions PushSubscription[]
+
+  createdAt     DateTime       @default(now())
+
+  @@index([userId, revokedAt])
+  @@map("devices")
+}
+
+model Session {
+  id               String   @id @default(cuid())
+  userId           String
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId         String?
+  device           Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  refreshTokenHash String   @unique
+  ipHash           String?
+  userAgent        String?  @db.VarChar(512)
+  expiresAt        DateTime
+  lastUsedAt       DateTime @default(now())
+  revokedAt        DateTime?
+
+  createdAt        DateTime @default(now())
+
+  @@index([userId, revokedAt])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// End-to-end encryption (1-to-1 option)
+// ─────────────────────────────────────────────────────────────
+
+model IdentityKey {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  user               User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  identityPublicKey  String   // X25519
+  signingPublicKey   String   // Ed25519
+  signedPreKey       String
+  signedPreKeySig    String
+  registrationId     Int
+  createdAt          DateTime @default(now())
+  rotatedAt          DateTime?
+
+  @@map("identity_keys")
+}
+
+model PreKey {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  keyId        Int
+  publicKey    String
+  usedAt       DateTime?
+  createdAt    DateTime @default(now())
+
+  @@unique([userId, keyId])
+  @@index([userId, usedAt])
+  @@map("pre_keys")
+}
+
+/// Wraps a conversation key for one recipient device. The server stores ciphertext only.
+model KeyEnvelope {
+  id             String        @id @default(cuid())
+  conversationId String
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId       String
+  device         Device        @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  ciphertext     String
+  senderKeyId    String?
+  createdAt      DateTime      @default(now())
+
+  @@unique([conversationId, deviceId])
+  @@index([userId])
+  @@map("key_envelopes")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Contacts / blocks
+// ─────────────────────────────────────────────────────────────
+
+model Contact {
+  id          String   @id @default(cuid())
+  ownerId     String
+  owner       User     @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: Cascade)
+  contactId   String
+  contact     User     @relation("ContactTarget", fields: [contactId], references: [id], onDelete: Cascade)
+
+  alias       String?  @db.VarChar(64)
+  isFavorite  Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  deletedAt   DateTime?
+
+  @@unique([ownerId, contactId])
+  @@index([contactId])
+  @@map("contacts")
+}
+
+model Block {
+  id        String   @id @default(cuid())
+  blockerId String
+  blocker   User     @relation("Blocker", fields: [blockerId], references: [id], onDelete: Cascade)
+  blockedId String
+  blocked   User     @relation("Blocked", fields: [blockedId], references: [id], onDelete: Cascade)
+  reason    String?  @db.VarChar(280)
+  createdAt DateTime @default(now())
+
+  @@unique([blockerId, blockedId])
+  @@index([blockedId])
+  @@map("blocks")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Conversations
+// ─────────────────────────────────────────────────────────────
+
+model Conversation {
+  id                  String           @id @default(cuid())
+  type                ConversationType
+  title               String?          @db.VarChar(80)
+  slug                String?          @unique @db.VarChar(80)
+  description         String?          @db.VarChar(280)
+  avatarUrl           String?
+  avatarBlurhash      String?
+
+  createdById         String?
+  createdBy           User?            @relation("ConversationCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  encrypted           Boolean          @default(false)
+  disappearingSeconds Int?             // 0/off = null
+  lastMessageAt       DateTime?
+  lastMessageId       String?
+  memberCount         Int              @default(0)
+
+  archivedAt          DateTime?
+  deletedAt           DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+
+  participants        Participant[]
+  messages            Message[]
+  invites             ConversationInvite[]
+  calls               Call[]
+  stories             Story[]
+  keyEnvelopes        KeyEnvelope[]
+
+  @@index([type, lastMessageAt(sort: Desc)])
+  @@index([lastMessageAt(sort: Desc)])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin)
+  @@map("conversations")
+}
+
+model Participant {
+  id                 String            @id @default(cuid())
+  conversationId     String
+  conversation       Conversation      @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  userId             String
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  role               ParticipantRole   @default(MEMBER)
+  notificationLevel  NotificationLevel @default(ALL)
+  mutedUntil         DateTime?
+
+  joinedAt           DateTime          @default(now())
+  leftAt             DateTime?
+  invitedById        String?
+
+  lastReadMessageId  String?
+  lastReadAt         DateTime?
+  isPinned           Boolean           @default(false)
+  isArchived         Boolean           @default(false)
+  draft              String?           @db.VarChar(2000)
+
+  @@unique([conversationId, userId])
+  @@index([userId, leftAt])
+  @@map("participants")
+}
+
+model ConversationInvite {
+  id             String       @id @default(cuid())
+  conversationId String
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  createdById    String
+  createdBy      User         @relation(fields: [createdById], references: [id], onDelete: Cascade)
+
+  code           String       @unique @db.VarChar(24)
+  maxUses        Int?
+  uses           Int          @default(0)
+  expiresAt      DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime     @default(now())
+
+  @@index([conversationId])
+  @@map("conversation_invites")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Messages
+// ─────────────────────────────────────────────────────────────
+
+model Message {
+  id                 String       @id @default(cuid())
+  seq                BigInt       @default(autoincrement())
+  conversationId     String
+  conversation       Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  senderId           String?
+  sender             User?        @relation(fields: [senderId], references: [id], onDelete: SetNull)
+
+  /// Client-generated UUID: idempotent offline-queue replay.
+  clientId           String       @db.VarChar(64)
+
+  type               MessageType  @default(TEXT)
+  body               String?      @db.Text
+  /// true when body/attachments are ciphertext blobs (1-to-1 E2EE).
+  encrypted          Boolean      @default(false)
+
+  replyToId          String?
+  replyTo            Message?     @relation("MessageReply", fields: [replyToId], references: [id], onDelete: SetNull)
+  replies            Message[]    @relation("MessageReply")
+
+  forwardedFromId    String?
+  forwardedFrom      Message?     @relation("MessageForward", fields: [forwardedFromId], references: [id], onDelete: SetNull)
+  forwards           Message[]    @relation("MessageForward")
+
+  editedAt           DateTime?
+  deletedAt          DateTime?
+  deletedForEveryone Boolean      @default(false)
+
+  viewOnce           Boolean      @default(false)
+  viewedAt           DateTime?    // set when a view-once message is burned
+  expiresAt          DateTime?    // disappearing messages
+
+  pinnedAt           DateTime?
+  pinnedById         String?
+  pinnedBy           User?        @relation("MessagePinnedBy", fields: [pinnedById], references: [id], onDelete: SetNull)
+
+  /// Full-text index maintained by a raw-SQL migration (GENERATED ALWAYS AS tsvector).
+  searchVector       Unsupported("tsvector")?
+
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+
+  attachments        Attachment[]
+  reactions          Reaction[]
+  receipts           MessageReceipt[]
+  edits              MessageEdit[]
+  hides              MessageHide[]
+  reports            Report[]
+  linkPreviews       LinkPreview[]
+  call               Call?
+
+  @@unique([conversationId, clientId])
+  @@unique([conversationId, seq])
+  @@index([conversationId, seq(sort: Desc)])
+  @@index([conversationId, pinnedAt(sort: Desc)])
+  @@index([senderId, createdAt(sort: Desc)])
+  @@index([expiresAt])
+  /// Maintained by the `messages_search_vector_trg` trigger
+  /// (migration 20260101000100_search_indexes), not by Prisma.
+  @@index([searchVector(ops: raw("tsvector_ops"))], type: Gin)
+  @@map("messages")
+}
+
+model MessageEdit {
+  id           String   @id @default(cuid())
+  messageId    String
+  message      Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  editorId     String
+  editor       User     @relation(fields: [editorId], references: [id], onDelete: Cascade)
+  previousBody String?  @db.Text
+  createdAt    DateTime @default(now())
+
+  @@index([messageId, createdAt])
+  @@map("message_edits")
+}
+
+/// Per-user "delete for me" without touching anyone else's copy.
+model MessageHide {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId])
+  @@index([userId])
+  @@map("message_hides")
+}
+
+model MessageReceipt {
+  id          String       @id @default(cuid())
+  messageId   String
+  message     Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId      String
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  state       ReceiptState @default(SENT)
+  deliveredAt DateTime?
+  readAt      DateTime?
+
+  @@unique([messageId, userId])
+  @@index([userId, state])
+  @@map("message_receipts")
+}
+
+model Reaction {
+  id        String   @id @default(cuid())
+  messageId String
+  message   Message  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  emoji     String   @db.VarChar(32)
+  createdAt DateTime @default(now())
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId])
+  @@map("reactions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Uploads & attachments
+// ─────────────────────────────────────────────────────────────
+
+model Upload {
+  id          String       @id @default(cuid())
+  userId      String
+  kind        AttachmentKind
+  storageKey  String       @unique
+  bucket      String       @default("voidlink-media")
+  mimeType    String       @db.VarChar(128)
+  sizeBytes   BigInt
+  checksum    String?
+  status      UploadStatus @default(PENDING)
+  scanStatus  ScanStatus   @default(PENDING)
+  completedAt DateTime?
+  expiresAt   DateTime?
+  createdAt   DateTime     @default(now())
+
+  attachment  Attachment?
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([status, expiresAt])
+  @@map("uploads")
+}
+
+model Attachment {
+  id            String         @id @default(cuid())
+  messageId     String?
+  message       Message?       @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploadId      String?        @unique
+  upload        Upload?        @relation(fields: [uploadId], references: [id], onDelete: SetNull)
+
+  kind          AttachmentKind
+  storageKey    String
+  bucket        String         @default("voidlink-media")
+  mimeType      String         @db.VarChar(128)
+  sizeBytes     BigInt
+  checksum      String?
+
+  width         Int?
+  height        Int?
+  durationMs    Int?
+  thumbnailKey  String?
+  blurhash      String?        @db.VarChar(128)
+  waveform      Json?          // number[] peaks for voice notes
+  caption       String?        @db.VarChar(1000)
+  transcodeKey  String?        // MP3/AAC fallback for Safari
+  scanStatus    ScanStatus     @default(PENDING)
+
+  viewOnce      Boolean        @default(false)
+  openedAt      DateTime?      // view-once burn timestamp
+  downloadCount Int            @default(0)
+
+  createdAt     DateTime       @default(now())
+
+  @@index([messageId])
+  @@map("attachments")
+}
+
+model LinkPreview {
+  id          String   @id @default(cuid())
+  url         String   @unique @db.VarChar(2048)
+  messageId   String?
+  message     Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  title       String?  @db.VarChar(300)
+  description String?  @db.VarChar(600)
+  siteName    String?  @db.VarChar(120)
+  imageKey    String?
+  fetchedAt   DateTime @default(now())
+  failedAt    DateTime?
+
+  @@index([messageId])
+  @@map("link_previews")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Calls
+// ─────────────────────────────────────────────────────────────
+
+model Call {
+  id               String        @id @default(cuid())
+  conversationId   String
+  conversation     Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messageId        String?       @unique
+  message          Message?      @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  initiatorId      String
+  initiator        User          @relation("CallInitiator", fields: [initiatorId], references: [id], onDelete: Cascade)
+  endedById        String?
+  endedBy          User?         @relation("CallEnder", fields: [endedById], references: [id], onDelete: SetNull)
+
+  kind             CallKind
+  scope            CallScope     @default(DIRECT)
+  status           CallStatus    @default(RINGING)
+  endReason        CallEndReason?
+
+  sfuRoom          String?       // LiveKit room for group calls; null for P2P 1-to-1
+  recordingKey     String?
+  durationSeconds  Int?
+
+  ringExpiresAt    DateTime?
+  startedAt        DateTime      @default(now())
+  answeredAt       DateTime?
+  endedAt          DateTime?
+
+  participants     CallParticipant[]
+
+  @@index([conversationId, startedAt(sort: Desc)])
+  @@index([status])
+  @@index([ringExpiresAt])
+  @@map("calls")
+}
+
+model CallParticipant {
+  id                String               @id @default(cuid())
+  callId            String
+  call              Call                 @relation(fields: [callId], references: [id], onDelete: Cascade)
+  userId            String
+  user              User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  state             CallParticipantState @default(INVITED)
+  joinedAt          DateTime?
+  leftAt            DateTime?
+  durationSeconds   Int?
+  invitedAt         DateTime             @default(now())
+
+  isMuted           Boolean              @default(false)
+  cameraOn          Boolean              @default(true)
+  screenSharing     Boolean              @default(false)
+  handRaisedAt      DateTime?
+  connectionQuality ConnectionQuality    @default(UNKNOWN)
+  disconnectReason  String?
+
+  @@unique([callId, userId])
+  @@index([userId, joinedAt(sort: Desc)])
+  @@map("call_participants")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Stories (24h ephemeral)
+// ─────────────────────────────────────────────────────────────
+
+model Story {
+  id            String          @id @default(cuid())
+  authorId      String
+  author        User            @relation(fields: [authorId], references: [id], onDelete: Cascade)
+  conversationId String?
+  conversation  Conversation?   @relation(fields: [conversationId], references: [id], onDelete: SetNull)
+
+  kind          StoryKind
+  caption       String?         @db.VarChar(500)
+  storageKey    String?
+  thumbnailKey  String?
+  blurhash      String?
+  durationMs    Int?
+  background    String?         // gradient token for text stories
+  visibility    StoryVisibility @default(CONTACTS)
+
+  expiresAt     DateTime
+  deletedAt     DateTime?
+  createdAt     DateTime        @default(now())
+
+  views         StoryView[]
+
+  @@index([authorId, createdAt(sort: Desc)])
+  @@index([expiresAt])
+  @@map("stories")
+}
+
+model StoryView {
+  id        String   @id @default(cuid())
+  storyId   String
+  story     Story    @relation(fields: [storyId], references: [id], onDelete: Cascade)
+  viewerId  String
+  viewer    User     @relation(fields: [viewerId], references: [id], onDelete: Cascade)
+  viewedAt  DateTime @default(now())
+  reactedWith String? @db.VarChar(32)
+
+  @@unique([storyId, viewerId])
+  @@index([viewerId])
+  @@map("story_views")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Moderation
+// ─────────────────────────────────────────────────────────────
+
+model Report {
+  id                String         @id @default(cuid())
+  reporterId        String
+  reporter          User           @relation("ReportReporter", fields: [reporterId], references: [id], onDelete: Cascade)
+
+  reportedUserId    String?
+  reportedUser      User?          @relation("ReportTarget", fields: [reportedUserId], references: [id], onDelete: SetNull)
+  reportedMessageId String?
+  reportedMessage   Message?       @relation(fields: [reportedMessageId], references: [id], onDelete: SetNull)
+  conversationId    String?
+
+  category          ReportCategory
+  details           String?        @db.VarChar(2000)
+  status            ReportStatus   @default(OPEN)
+  resolutionNote    String?        @db.VarChar(1000)
+
+  handledById       String?
+  handledBy         User?          @relation("ReportHandler", fields: [handledById], references: [id], onDelete: SetNull)
+  handledAt         DateTime?
+
+  createdAt         DateTime       @default(now())
+
+  @@index([status, createdAt])
+  @@index([reportedUserId])
+  @@map("reports")
+}
+
+model ModerationAction {
+  id           String               @id @default(cuid())
+  actorId      String
+  actor        User                 @relation("ModerationActor", fields: [actorId], references: [id], onDelete: Cascade)
+  targetUserId String?
+  targetUser   User?                @relation("ModerationTarget", fields: [targetUserId], references: [id], onDelete: SetNull)
+
+  action       ModerationActionType
+  reason       String?              @db.VarChar(500)
+  metadata     Json?
+  createdAt    DateTime             @default(now())
+
+  @@index([targetUserId, createdAt(sort: Desc)])
+  @@index([actorId])
+  @@map("moderation_actions")
+}
+
+// ─────────────────────────────────────────────────────────────
+// Notifications
+// ─────────────────────────────────────────────────────────────
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      NotificationType
+  payload   Json
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  @@index([userId, readAt, createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+model PushSubscription {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  deviceId     String?
+  device       Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  endpoint     String   @unique @db.VarChar(1024)
+  p256dh       String
+  auth         String
+  userAgent    String?  @db.VarChar(512)
+  failureCount Int      @default(0)
+  lastUsedAt   DateTime @default(now())
+  createdAt    DateTime @default(now())
+
+  @@index([userId])
+  @@map("push_subscriptions")
+}

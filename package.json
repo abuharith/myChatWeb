@@ -1,0 +1,29 @@
+{
+  "name": "voidlink",
+  "private": true,
+  "version": "0.2.0",
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @voidlink/web",
+    "build": "npm run build -w @voidlink/web",
+    "preview": "npm run preview -w @voidlink/web",
+    "typecheck": "npm run typecheck -w @voidlink/web",
+    "prisma:validate": "cd apps/server && prisma validate",
+    "prisma:generate": "cd apps/server && prisma generate"
+  },
+  "devDependencies": {
+    "embedded-postgres": "^19.0.0-beta.20",
+    "prettier": "^3.3.3",
+    "prisma": "^6.19.3",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "@prisma/client": "^6.19.3"
+  }
+}
