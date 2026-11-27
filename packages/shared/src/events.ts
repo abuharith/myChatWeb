@@ -40,6 +40,43 @@ export interface ReceiptDTO {
   state: ReceiptState;
 }
 
+export type AttachmentKind = 'IMAGE' | 'VIDEO' | 'AUDIO' | 'VOICE' | 'FILE';
+
+export interface AttachmentDTO {
+  id: string;
+  kind: AttachmentKind;
+  mimeType: string;
+  sizeBytes: number;
+  width: number | null;
+  height: number | null;
+  durationMs: number | null;
+  blurhash: string | null;
+  waveform: number[] | null;
+  /** Signed, time-limited media URL. Null for view-once media until it is opened. */
+  url: string | null;
+  thumbnailUrl: string | null;
+  viewOnce: boolean;
+  openedAt: string | null;
+}
+
+export interface PresignedUploadDTO {
+  uploadId: string;
+  key: string;
+  url: string;
+  expiresIn: number;
+  headers: Record<string, string>;
+}
+
+export interface CompletedUploadDTO {
+  uploadId: string;
+  attachment: AttachmentDTO;
+}
+
+export interface OpenViewOnceDTO {
+  url: string;
+  expiresAt: string;
+}
+
 export interface MessageDTO {
   id: string;
   clientId: string;
@@ -54,6 +91,9 @@ export interface MessageDTO {
   editedAt: string | null;
   deletedForEveryone: boolean;
   receipts: ReceiptDTO[];
+  attachments: AttachmentDTO[];
+  viewOnce: boolean;
+  viewedAt: string | null;
   /** Convenience aggregate for own messages: the weakest recipient state. */
   status: 'SENT' | 'DELIVERED' | 'READ' | null;
 }

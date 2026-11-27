@@ -18,6 +18,13 @@ export default defineConfig({
     proxy: {
       '/v1': { target: 'http://127.0.0.1:4000', changeOrigin: true },
       '/socket.io': { target: 'http://127.0.0.1:4000', changeOrigin: true, ws: true },
+      // Dev-only bridge to the embedded S3 API so presigned browser uploads
+      // stay same-origin (production presigns straight to R2).
+      '/s3': {
+        target: 'http://127.0.0.1:4568',
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/s3/, ''),
+      },
     },
   },
   preview: {

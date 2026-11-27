@@ -1,5 +1,5 @@
-import type { MessageDTO, SendMessageInput } from '@voidlink/shared';
-import { forbidden, notFound } from '../lib/errors';
+import type { AttachmentKind, MessageDTO, SendMessageInput } from '@voidlink/shared';
+import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
 import { emitMessage } from '../lib/realtime';
 import { prisma } from '../lib/prisma';
 import { createMessage } from '../repositories/messages.repo';
@@ -45,17 +45,66 @@ export async function send(userId: string, input: SendMessageInput): Promise<Sen
     if (!reply) throw notFound('The message you replied to no longer exists');
   }
 
+  const attachmentIds = [...new Set(input.attachmentIds)];
+  let uploaded: Array<{ id: string; kind: AttachmentKind; messageId: string | null }> = [];
+
+  if (attachmentIds.length > 0) {
+    const rows = await prisma.attachment.findMany({
+      where: { id: { in: attachmentIds } },
+      include: { upload: { select: { userId: true, status: true } } },
+    });
+    if (rows.length !== attachmentIds.length) {
+      throw badRequest('One or more attachments are unavailable');
+    }
+
+    const byId = new Map(rows.map((row) => [row.id, row]));
+    uploaded = attachmentIds.map((id) => byId.get(id)!);
+
+    for (const attachment of uploaded) {
+      if (attachment.messageId) throw conflict('That attachment was already sent');
+      if (attachment.kind === 'VOICE' && input.viewOnce) {
+        throw badRequest('Only photos and videos can be view-once');
+      }
+    }
+
+    // Ownership is checked through the upload row, never the attachment id alone.
+    const ownership = await prisma.upload.findMany({
+      where: { attachment: { id: { in: attachmentIds } } },
+      select: { userId: true, status: true, attachment: { select: { id: true } } },
+    });
+    for (const row of ownership) {
+      if (row.userId !== userId) throw forbidden('You can only send your own uploads');
+      if (row.status !== 'READY') throw badRequest('Finish the upload before sending it');
+    }
+
+    if (input.viewOnce) {
+      const kind = uploaded[0]?.kind;
+      if (uploaded.length !== 1 || (kind !== 'IMAGE' && kind !== 'VIDEO')) {
+        throw badRequest('View-once messages carry exactly one photo or video');
+      }
+    }
+  }
+
+  const derivedType =
+    input.type === 'TEXT' && uploaded.length > 0
+      ? ({ IMAGE: 'IMAGE', VIDEO: 'VIDEO', AUDIO: 'AUDIO', VOICE: 'VOICE', FILE: 'FILE' } as const)[
+          uploaded[0]!.kind
+        ]
+      : input.type;
+
   const recipientIds = await getParticipantIds(input.conversationId);
 
   const { row, duplicate } = await createMessage({
     conversationId: input.conversationId,
     senderId: userId,
     clientId: input.clientId,
-    type: input.type,
+    type: derivedType,
     body: input.body,
     replyToId: input.replyToId,
     encrypted: input.encrypted,
     recipientIds,
+    attachmentIds,
+    viewOnce: input.viewOnce,
   });
 
   const message = toMessage(row, userId);

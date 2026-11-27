@@ -25,13 +25,39 @@ export const loginSchema = z.object({
   password: z.string().min(1).max(LIMITS.passwordMax),
 });
 
-export const sendMessageSchema = z.object({
-  conversationId: z.string().min(1),
-  clientId: z.string().uuid(),
-  type: z.enum(['TEXT', 'IMAGE', 'VIDEO', 'AUDIO', 'VOICE', 'FILE']).default('TEXT'),
-  body: z.string().trim().min(1).max(LIMITS.messageMax),
-  replyToId: z.string().min(1).optional(),
-  encrypted: z.boolean().default(false),
+export const sendMessageSchema = z
+  .object({
+    conversationId: z.string().min(1),
+    clientId: z.string().uuid(),
+    type: z.enum(['TEXT', 'IMAGE', 'VIDEO', 'AUDIO', 'VOICE', 'FILE']).default('TEXT'),
+    body: z.string().trim().max(LIMITS.messageMax).default(''),
+    replyToId: z.string().min(1).optional(),
+    encrypted: z.boolean().default(false),
+    attachmentIds: z.array(z.string().min(1)).max(LIMITS.media.maxAttachments).default([]),
+    viewOnce: z.boolean().default(false),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.body && value.attachmentIds.length === 0) {
+      ctx.addIssue({ code: 'custom', message: 'A message needs text or an attachment' });
+    }
+    if (value.viewOnce && value.attachmentIds.length !== 1) {
+      ctx.addIssue({ code: 'custom', message: 'View-once messages carry exactly one attachment' });
+    }
+  });
+
+export const presignUploadSchema = z.object({
+  kind: z.enum(['IMAGE', 'VIDEO', 'AUDIO', 'VOICE', 'FILE']),
+  mimeType: z.string().trim().min(3).max(128),
+  sizeBytes: z.number().int().positive().max(LIMITS.media.fileMaxBytes),
+  durationMs: z.number().int().min(0).max(3_600_000).optional(),
+  waveform: z.array(z.number().min(0).max(1)).max(LIMITS.media.waveformMaxPeaks).optional(),
+});
+
+export type PresignUploadInput = z.infer<typeof presignUploadSchema>;
+
+export const completeUploadSchema = z.object({
+  durationMs: z.number().int().min(0).max(3_600_000).optional(),
+  waveform: z.array(z.number().min(0).max(1)).max(LIMITS.media.waveformMaxPeaks).optional(),
 });
 
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;

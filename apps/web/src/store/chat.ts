@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type {
+  AttachmentDTO,
   ConversationDTO,
   MessageDTO,
   MessagePage,
@@ -43,8 +44,13 @@ interface ChatState {
   select: (conversationId: string) => void;
   closeActive: () => void;
   loadMessages: (conversationId: string, before?: string) => Promise<void>;
-  send: (body: string) => Promise<void>;
+  send: (
+    body: string,
+    attachments?: AttachmentDTO[],
+    options?: { viewOnce?: boolean },
+  ) => Promise<void>;
   retry: (clientId: string) => void;
+  burnAttachment: (messageId: string, attachmentId: string) => void;
   markRead: (conversationId: string) => void;
   receive: (message: MessageDTO) => void;
   applyReceipt: (update: ReceiptUpdate) => void;
@@ -301,19 +307,28 @@ export const useChatStore = create<ChatState>((set, get) => ({
     }
   },
 
-  send: async (body) => {
+  send: async (body, attachments = [], options = {}) => {
     const { activeId, userId } = get();
     const trimmed = body.trim();
-    if (!activeId || !trimmed || !userId) return;
+    if (!activeId || (!trimmed && attachments.length === 0) || !userId) return;
 
+    const viewOnce = Boolean(options.viewOnce && attachments.length === 1);
     const clientId = crypto.randomUUID();
+    const kind = attachments[0]?.kind;
     const optimistic: MessageDTO = {
       id: `temp-${clientId}`,
       clientId,
       conversationId: activeId,
       seq: '0',
-      type: 'TEXT',
-      body: trimmed,
+      type: kind ?? 'TEXT',
+      body: trimmed || null,
+      attachments: attachments.map((attachment) =>
+        viewOnce
+          ? { ...attachment, viewOnce: true, url: null, thumbnailUrl: null }
+          : attachment,
+      ),
+      viewOnce,
+      viewedAt: null,
       encrypted: false,
       sender: {
         id: userId,
@@ -344,13 +359,24 @@ export const useChatStore = create<ChatState>((set, get) => ({
     const input: SendMessageInput = {
       conversationId: activeId,
       clientId,
-      type: 'TEXT',
+      type: (kind ?? 'TEXT') as SendMessageInput['type'],
       body: trimmed,
       encrypted: false,
+      attachmentIds: attachments.map((attachment) => attachment.id),
+      viewOnce,
     };
 
     const socket = getChatSocket();
     if (!socket?.connected) {
+      if (attachments.length > 0) {
+        set((state) => ({
+          sendErrors: {
+            ...state.sendErrors,
+            [clientId]: 'Reconnect to send media',
+          },
+        }));
+        return;
+      }
       set((state) => {
         const nextQueue = [...state.queue, { conversationId: activeId, clientId, body: trimmed, queuedAt: Date.now() }];
         persistQueue(userId, nextQueue);
@@ -363,9 +389,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   },
 
   retry: (clientId) => {
-    const { queue, userId, messages } = get();
-    const item = queue.find((entry) => entry.clientId === clientId);
-    if (!item) return;
+    const { userId, messages } = get();
     const optimistic = Object.values(messages)
       .flat()
       .find((message) => message.clientId === clientId);
@@ -382,14 +406,40 @@ export const useChatStore = create<ChatState>((set, get) => ({
     socket.emit(
       'message:send',
       {
-        conversationId: item.conversationId,
+        conversationId: optimistic.conversationId,
         clientId,
-        type: 'TEXT',
-        body: item.body,
+        type: optimistic.type as SendMessageInput['type'],
+        body: optimistic.body ?? '',
         encrypted: false,
+        attachmentIds: optimistic.attachments.map((attachment) => attachment.id),
+        viewOnce: optimistic.viewOnce,
       },
       (ack: SendAck) => settleAck(set, clientId, ack),
     );
+  },
+
+  burnAttachment: (messageId, attachmentId) => {
+    const openedAt = new Date().toISOString();
+    set((state) => ({
+      messages: Object.fromEntries(
+        Object.entries(state.messages).map(([conversationId, list]) => [
+          conversationId,
+          list.map((message) =>
+            message.id === messageId
+              ? {
+                  ...message,
+                  viewedAt: message.viewedAt ?? openedAt,
+                  attachments: message.attachments.map((attachment) =>
+                    attachment.id === attachmentId
+                      ? { ...attachment, openedAt, url: null, thumbnailUrl: null }
+                      : attachment,
+                  ),
+                }
+              : message,
+          ),
+        ]),
+      ),
+    }));
   },
 
   markRead: (conversationId) => {
@@ -597,6 +647,8 @@ async function flushQueue(set: Setter, get: Getter): Promise<void> {
         type: 'TEXT',
         body: item.body,
         encrypted: false,
+        attachmentIds: [],
+        viewOnce: false,
       },
       (ack: SendAck) => settleAck(set, item.clientId, ack),
     );

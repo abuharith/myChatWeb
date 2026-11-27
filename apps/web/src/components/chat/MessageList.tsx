@@ -1,5 +1,6 @@
-import { useEffect, useRef } from 'react';
-import type { ConversationDTO, MessageDTO } from '@voidlink/shared';
+import { useEffect, useRef, useState } from 'react';
+import type { AttachmentDTO, ConversationDTO, MessageDTO } from '@voidlink/shared';
+import { api } from '../../lib/api';
 import { cn } from '../../lib/cn';
 import { formatDay, formatTime } from '../../lib/format';
 import { useAuthStore } from '../../store/auth';
@@ -7,6 +8,8 @@ import { useChatStore } from '../../store/chat';
 import { Bubble, type DeliveryState } from '../ui/Bubble';
 import { Button } from '../ui/Button';
 import { GemIcon } from '../ui/GemIcon';
+import { Lightbox, type LightboxItem } from './media/Lightbox';
+import { MediaMessage } from './media/MediaMessage';
 
 function deliveryOf(message: MessageDTO): DeliveryState {
   if (message.id.startsWith('temp-')) return 'sending';
@@ -24,6 +27,30 @@ export function MessageList({ conversation }: { conversation: ConversationDTO })
   const sendErrors = useChatStore((state) => state.sendErrors);
   const typing = useChatStore((state) => state.typing[conversation.id] ?? []);
   const me = useAuthStore((state) => state.user);
+  const burnAttachment = useChatStore((state) => state.burnAttachment);
+
+  const [lightbox, setLightbox] = useState<
+    (LightboxItem & { messageId?: string; attachmentId?: string }) | null
+  >(null);
+  const [mediaError, setMediaError] = useState<string | null>(null);
+
+  const openViewOnce = async (message: MessageDTO, attachment: AttachmentDTO) => {
+    setMediaError(null);
+    try {
+      const result = await api.post<{ url: string; expiresAt: string }>(
+        `/v1/attachments/${attachment.id}/view`,
+      );
+      setLightbox({
+        url: result.url,
+        kind: attachment.kind === 'VIDEO' ? 'VIDEO' : 'IMAGE',
+        viewOnce: true,
+        messageId: message.id,
+        attachmentId: attachment.id,
+      });
+    } catch (error) {
+      setMediaError(error instanceof Error ? error.message : 'Could not open this media');
+    }
+  };
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -104,7 +131,18 @@ export function MessageList({ conversation }: { conversation: ConversationDTO })
                 time={formatTime(message.createdAt)}
                 status={deliveryOf(message)}
               >
-                {message.body}
+                <MediaMessage
+                  message={message}
+                  onOpen={(url, kind) =>
+                    setLightbox({ url, kind, viewOnce: false })
+                  }
+                  onViewOnce={(attachment) => void openViewOnce(message, attachment)}
+                />
+                {message.body ? (
+                  <span className={cn('block', message.attachments.length > 0 && 'mt-1.5')}>
+                    {message.body}
+                  </span>
+                ) : null}
               </Bubble>
 
               {error ? (
@@ -143,6 +181,24 @@ export function MessageList({ conversation }: { conversation: ConversationDTO })
       ) : null}
 
       <div ref={bottomRef} />
+
+      {mediaError ? (
+        <div className="sticky bottom-2 mt-3 flex justify-center">
+          <p className="border border-[color:rgba(255,107,61,0.4)] bg-[rgba(20,8,10,0.9)] px-3 py-1.5 text-[0.65rem] text-[color:var(--ember)]">
+            {mediaError}
+          </p>
+        </div>
+      ) : null}
+
+      <Lightbox
+        item={lightbox}
+        onClose={() => setLightbox(null)}
+        onBurn={() => {
+          if (lightbox?.messageId && lightbox.attachmentId) {
+            burnAttachment(lightbox.messageId, lightbox.attachmentId);
+          }
+        }}
+      />
     </div>
   );
 }

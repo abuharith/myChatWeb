@@ -2,8 +2,9 @@
 
 A real-time chat and calling platform with a dark, mythic-cosmic visual identity.
 
-> **Status:** Phase 3 — Auth + messaging core complete. Real-time text, presence,
-> typing and delivery receipts are live. Next: media (Phase 4).
+> **Status:** Phase 4 — Media complete. Presigned uploads, image processing,
+> thumbnails/blurhash, lightbox, voice notes and view-once Dust Dissolve are live.
+> Next: calls (Phase 5).
 
 ## Quickstart
 
@@ -29,7 +30,8 @@ Demo accounts: `ashka`, `rune`, `sable` — password `voidlink-dev`.
 Sign in from two browsers to watch presence, typing and read receipts move live.
 
 Checks: `npm run typecheck` · `npm test -w @voidlink/server` (needs PostgreSQL) ·
-`node apps/server/scripts/verify-search.mjs` · `node apps/server/scripts/smoke-realtime.mjs`.
+`node apps/server/scripts/verify-search.mjs` · `node apps/server/scripts/smoke-realtime.mjs` ·
+`npm run media:verify -w @voidlink/server` (self-contained: spins up S3 + FFmpeg).
 
 ## Auth & socket notes
 
@@ -40,6 +42,40 @@ Checks: `npm run typecheck` · `npm test -w @voidlink/server` (needs PostgreSQL)
 - `/presence`: `presence:set`, `presence:snapshot`, `presence:update`.
 - Offline sends are queued in `localStorage` and replayed on reconnect; the server
   deduplicates by `(conversationId, clientId)`.
+
+## Media (Phase 4)
+
+- **Direct-to-storage uploads:** `POST /v1/uploads/presign` creates an upload row and
+  returns a presigned PUT, the client uploads the bytes, then
+  `POST /v1/uploads/:id/complete` verifies the object and processes it. Limits: images
+  15 MB, video 100 MB, audio/voice 25 MB, files 25 MB, 10 attachments per message.
+- **Image pipeline:** the browser re-encodes through a canvas (strips EXIF/GPS, applies
+  orientation, caps the long edge at 2048); the server re-encodes again with sharp,
+  caps at 2048, writes a ≤480px thumbnail, and computes a blurhash placeholder.
+- **Video/audio:** ffprobe reads duration/dimensions and ffmpeg extracts a video frame
+  for the thumbnail; voice notes store the client's waveform peaks.
+- **Private delivery:** media streams through `/v1/media/:id` with a short-lived HMAC
+  token, and Range requests are forwarded. View-once media has no URL in the DTO; the
+  first `POST /v1/attachments/:id/view` burns it atomically (`410` afterwards).
+- **Client:** attachment tray with progress, drag/drop and paste, lightbox with zoom and
+  download, waveform voice player with speed control, view-once shroud and the gold/violet
+  Dust Dissolve on burn (fade under reduced motion).
+- **Local dev:** the API can host an in-process S3 API so no MinIO/Docker is needed:
+
+  ```bash
+  cd apps/server
+  S3_EMBEDDED=true S3_ENDPOINT=http://127.0.0.1:4568 \
+  S3_PUBLIC_ENDPOINT=http://localhost:3000/s3 \
+  S3_ACCESS_KEY_ID=S3RVER S3_SECRET_ACCESS_KEY=S3RVER \
+  npm run dev
+  ```
+
+  Vite proxies `/s3` to the embedded store. For MinIO/R2 set `S3_ENDPOINT` to the
+  storage API, `S3_PUBLIC_ENDPOINT` to the endpoint a browser can reach (R2 works), and
+  allow `PUT` with `content-type` from `WEB_ORIGIN` in the bucket CORS policy.
+- **Not implemented yet:** a virus scanner (successful processing records `CLEAN`; the
+  `VIRUS_SCAN_CMD` hook is reserved) and MP4/AAC transcoding for older Safari clients
+  (`transcodeKey` is reserved).
 
 Full plan and phase log: [docs/PLAN.md](docs/PLAN.md).
 
@@ -62,4 +98,5 @@ Full plan and phase log: [docs/PLAN.md](docs/PLAN.md).
 
 ## Local prerequisites (for later phases)
 
-Node 20+, pnpm 9+, Docker Desktop, FFmpeg (server media worker).
+Node 20+, npm 10+, Docker Desktop (optional: embedded PostgreSQL/S3 fallbacks exist),
+FFmpeg + FFprobe on the server for video thumbnails and audio duration.

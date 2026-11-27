@@ -20,6 +20,29 @@ const schema = z.object({
     .transform((value) => value === 'true'),
   REDIS_URL: z.string().optional(),
   LOG_LEVEL: z.enum(['debug', 'info', 'warn', 'error']).default('info'),
+
+  // S3-compatible object storage (MinIO locally, Cloudflare R2 in production).
+  S3_ENDPOINT: z.string().optional(),
+  /** Endpoint embedded in presigned upload URLs (must be reachable by browsers). */
+  S3_PUBLIC_ENDPOINT: z.string().url().optional(),
+  S3_REGION: z.string().default('us-east-1'),
+  S3_ACCESS_KEY_ID: z.string().optional(),
+  S3_SECRET_ACCESS_KEY: z.string().optional(),
+  S3_BUCKET: z.string().default('voidlink-media'),
+  S3_FORCE_PATH_STYLE: z
+    .string()
+    .default('true')
+    .transform((value) => value !== 'false'),
+  /** Development only: run an in-process S3 API instead of MinIO. */
+  S3_EMBEDDED: z
+    .string()
+    .default('false')
+    .transform((value) => value === 'true'),
+  UPLOAD_URL_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
+  MEDIA_URL_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(3600),
+  MEDIA_SIGNING_SECRET: z.string().optional(),
+  FFMPEG_PATH: z.string().default('ffmpeg'),
+  FFPROBE_PATH: z.string().default('ffprobe'),
 });
 
 const parsed = schema.safeParse(process.env);
@@ -34,6 +57,9 @@ export const env = parsed.data;
 if (env.NODE_ENV === 'production') {
   if (env.JWT_ACCESS_SECRET === DEV_ACCESS_SECRET || env.JWT_REFRESH_SECRET === DEV_REFRESH_SECRET) {
     throw new Error('Refusing to start in production with development JWT secrets');
+  }
+  if (!env.S3_ACCESS_KEY_ID || !env.S3_SECRET_ACCESS_KEY) {
+    throw new Error('S3_ACCESS_KEY_ID and S3_SECRET_ACCESS_KEY are required in production');
   }
 }
 

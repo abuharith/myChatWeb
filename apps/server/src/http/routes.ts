@@ -9,7 +9,16 @@ import { loginSchema, registerSchema } from '@voidlink/shared';
 import * as authController from './controllers/auth.controller';
 import * as usersController from './controllers/users.controller';
 import * as conversationController from './controllers/conversations.controller';
+import * as mediaController from './controllers/media.controller';
 import { get as getConversation } from '../services/conversation.service';
+
+const uploadLimiter = rateLimit({
+  windowMs: 60_000,
+  limit: 40,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  message: { error: { code: 'RATE_LIMITED', message: 'Too many uploads, wait a minute' } },
+});
 
 const authLimiter = rateLimit({
   windowMs: 60_000,
@@ -38,6 +47,17 @@ export function buildRouter(): Router {
   router.get('/auth/me', authGuard, asyncHandler(authController.me));
 
   router.get('/users/search', authGuard, asyncHandler(usersController.search));
+
+  router.post(
+    '/uploads/presign',
+    authGuard,
+    uploadLimiter,
+    asyncHandler(mediaController.presign),
+  );
+  router.post('/uploads/:id/complete', authGuard, asyncHandler(mediaController.complete));
+  router.post('/attachments/:id/view', authGuard, asyncHandler(mediaController.viewOnce));
+  // Token-signed delivery so <img>/<video> can load private objects without a header.
+  router.get('/media/:id', asyncHandler(mediaController.stream));
 
   router.get('/conversations', authGuard, asyncHandler(conversationController.list));
   router.post('/conversations', authGuard, asyncHandler(conversationController.create));

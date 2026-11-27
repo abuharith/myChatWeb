@@ -10,6 +10,15 @@ export const LIMITS = {
   pageSizeMax: 60,
   typingTtlMs: 4000,
   accessTokenTtl: '15m',
+  media: {
+    maxAttachments: 10,
+    waveformMaxPeaks: 128,
+    imageMaxBytes: 15 * 1024 * 1024,
+    videoMaxBytes: 100 * 1024 * 1024,
+    audioMaxBytes: 25 * 1024 * 1024,
+    voiceMaxBytes: 25 * 1024 * 1024,
+    fileMaxBytes: 25 * 1024 * 1024,
+  },
 } as const;
 
 export const SOCKET_NAMESPACES = {

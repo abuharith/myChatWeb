@@ -13,10 +13,11 @@
   "dependencies": {
     "@react-three/fiber": "^8.17.10",
     "@voidlink/shared": "*",
-    "socket.io-client": "^4.8.1",
+    "blurhash": "^2.0.5",
     "framer-motion": "^11.11.17",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
+    "socket.io-client": "^4.8.1",
     "three": "^0.169.0",
     "zustand": "^4.5.5"
   },

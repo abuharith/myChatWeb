@@ -33,6 +33,8 @@ export interface CreateMessageData {
   replyToId?: string;
   encrypted: boolean;
   recipientIds: string[];
+  attachmentIds: string[];
+  viewOnce: boolean;
 }
 
 /**
@@ -53,6 +55,13 @@ export async function createMessage(data: CreateMessageData) {
       });
       if (existing) return { row: existing, duplicate: true as const };
 
+      if (data.viewOnce && data.attachmentIds.length > 0) {
+        await tx.attachment.updateMany({
+          where: { id: { in: data.attachmentIds }, messageId: null },
+          data: { viewOnce: true },
+        });
+      }
+
       const message = await tx.message.create({
         data: {
           conversationId: data.conversationId,
@@ -62,11 +71,15 @@ export async function createMessage(data: CreateMessageData) {
           body: data.body,
           encrypted: data.encrypted,
           replyToId: data.replyToId ?? null,
+          viewOnce: data.viewOnce,
           receipts: {
             create: data.recipientIds
               .filter((id) => id !== data.senderId)
               .map((userId) => ({ userId, state: 'SENT' as const })),
           },
+          ...(data.attachmentIds.length > 0
+            ? { attachments: { connect: data.attachmentIds.map((id) => ({ id })) } }
+            : {}),
         },
         include: messageInclude,
       });

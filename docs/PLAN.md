@@ -468,3 +468,50 @@ open conversation. Fixed by extracting pure transitions to
 
 Covered by 11 Vitest cases in `apps/web/src/lib/unread.test.ts` (increment rules,
 replay ordering, stale-server handling, 99+ formatting).
+
+### Phase 4 — Media (presigned uploads, voice, view-once)
+
+**Storage contract.** One S3 client serves MinIO, R2 and AWS. Presigning uses a separate
+public endpoint (`S3_PUBLIC_ENDPOINT`) so upload URLs are signed for the host the browser
+actually calls; everything else stays on the private endpoint. Uploads follow
+presign → direct PUT → complete, and `Upload` rows are scoped to the creator. `complete`
+heads the object, rejects size mismatches, then processes and writes an `Attachment` with
+metadata; messages can only link attachments whose upload is READY, unclaimed and owned by
+the sender.
+
+**Processing.** Images are auto-rotated and capped at 2048 with sharp, re-encoded (which
+drops EXIF/GPS), given a ≤480px JPEG thumbnail and a blurhash. GIFs pass through with a
+first-frame thumbnail. Video is probed with ffprobe and a frame extracted at ~1s with
+ffmpeg for the poster/blurhash. Voice duration is taken from the client or ffprobe; the
+waveform peaks come from the recorder's AnalyserNode. FFmpeg absence degrades gracefully
+(no video poster, no probed duration) instead of failing the upload.
+
+**Delivery and view-once.** Media is private and served by the API through
+`/v1/media/:id?variant=full|thumb&token=…`; the token is an HMAC over attachment id,
+variant and expiry, and Range headers are forwarded for seeking. View-once attachments
+are returned with `url: null`; `POST /v1/attachments/:id/view` marks `openedAt` atomically
+(only the first caller wins) and returns a five-minute URL, after which the endpoint
+answers `410 ATTACHMENT_VIEWED`.
+
+**Client.** Canvas compression before upload, XHR progress, drag/drop/paste, staged
+attachment tray, lightbox with zoom/download, waveform voice notes with seek and speed,
+view-once shroud, and Dust Dissolve (120 canvas motes, reduced-motion fade).
+
+**Verified.**
+- `npm run media:verify -w @voidlink/server` — 12/12 checks against a real S3 API, real
+  sharp and real FFmpeg: presign+PUT+complete, orientation applied, EXIF removed,
+  2048 cap, ≤480 thumbnail, blurhash, attachment delivery to the recipient, cross-account
+  reuse rejected, voice waveform/duration round-trip, video duration + frame thumbnail,
+  view-once URL hidden then burned (410 on reopen), MIME/size/token rejections, upload
+  ownership.
+- Existing 7/7 supertest API tests, 7/7 realtime smoke, `tsc` clean (shared/server/web),
+  `vite build` clean.
+- Browser (432px mobile viewport, two isolated sessions where needed): uploaded a JPEG
+  through the real presigned URL, sent it, loaded the signed media URL, opened/closed the
+  lightbox, played a voice note, sent a view-once photo, opened and closed it (dust canvas
+  sampled active, then gone), and confirmed the shroud flips to “opened once”. Media
+  responses were 200/206 with no page errors.
+- **Limits:** microphone capture could not be exercised in this headless browser (the
+  recorder UI/permission path is implemented but untested with hardware; voice playback
+  was verified with a real uploaded WAV). Dust Dissolve was verified by DOM presence and
+  timings rather than a frame-perfect visual capture.

@@ -13,3 +13,5 @@ playwright-report
 test-results
 apps/server/prisma/dev.db
 .vite
+artifacts
+*.tsbuildinfo

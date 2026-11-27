@@ -1,11 +1,14 @@
-import type { Prisma } from '@prisma/client';
+import type { Attachment, Prisma } from '@prisma/client';
 import type {
+  AttachmentDTO,
+  AttachmentKind,
   ConversationDTO,
   MessageDTO,
   Presence,
   ReceiptState,
   UserSummaryDTO,
 } from '@voidlink/shared';
+import { mediaUrl } from '../lib/media-signing';
 
 export const userSummarySelect = {
   id: true,
@@ -21,6 +24,7 @@ export type UserSummaryRow = Prisma.UserGetPayload<{ select: typeof userSummaryS
 export const messageInclude = {
   sender: { select: userSummarySelect },
   receipts: { select: { userId: true, state: true } },
+  attachments: true,
 } satisfies Prisma.MessageInclude;
 
 export type MessageRow = Prisma.MessageGetPayload<{ include: typeof messageInclude }>;
@@ -61,6 +65,26 @@ function aggregateStatus(
   return 'SENT';
 }
 
+export function toAttachmentDTO(row: Attachment): AttachmentDTO {
+  return {
+    id: row.id,
+    kind: row.kind as AttachmentKind,
+    mimeType: row.mimeType,
+    sizeBytes: Number(row.sizeBytes),
+    width: row.width,
+    height: row.height,
+    durationMs: row.durationMs,
+    blurhash: row.blurhash,
+    waveform: Array.isArray(row.waveform) ? (row.waveform as number[]) : null,
+    // View-once media is never exposed here; it is issued only by the burn endpoint.
+    url: row.viewOnce ? null : mediaUrl(row.id, 'full'),
+    thumbnailUrl:
+      !row.viewOnce && row.thumbnailKey ? mediaUrl(row.id, 'thumb') : null,
+    viewOnce: row.viewOnce,
+    openedAt: row.openedAt ? row.openedAt.toISOString() : null,
+  };
+}
+
 export function toMessage(row: MessageRow, viewerId: string): MessageDTO {
   const mine = row.senderId === viewerId;
   return {
@@ -80,6 +104,9 @@ export function toMessage(row: MessageRow, viewerId: string): MessageDTO {
       userId: receipt.userId,
       state: receipt.state,
     })),
+    attachments: row.attachments.map(toAttachmentDTO),
+    viewOnce: row.viewOnce,
+    viewedAt: row.viewedAt ? row.viewedAt.toISOString() : null,
     status: mine ? aggregateStatus(row.receipts, viewerId) : null,
   };
 }
