@@ -11,6 +11,7 @@ import {
   completeUploadSchema,
   presignUploadSchema,
   type AttachmentKind,
+  type AttachmentUrlsDTO,
   type CompletedUploadDTO,
   type OpenViewOnceDTO,
   type PresignedUploadDTO,
@@ -455,6 +456,51 @@ export async function openViewOnce(userId: string, attachmentId: string): Promis
   const ttlSeconds = 300;
   return {
     url: mediaUrl(attachment.id, 'full', ttlSeconds),
+    expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
+  };
+}
+
+/**
+ * Re-signs delivery URLs for a message attachment. Signed URLs are deliberately
+ * short-lived, so a chat left open for longer than the TTL asks for a fresh one
+ * instead of rendering a broken image. Access is participant-scoped.
+ */
+export async function refreshAttachmentUrls(
+  userId: string,
+  attachmentId: string,
+): Promise<AttachmentUrlsDTO> {
+  const attachment = await prisma.attachment.findUnique({
+    where: { id: attachmentId },
+    include: {
+      upload: { select: { userId: true } },
+      message: {
+        include: {
+          conversation: {
+            include: { participants: { where: { leftAt: null }, select: { userId: true } } },
+          },
+        },
+      },
+    },
+  });
+
+  if (!attachment) throw notFound('Attachment not found');
+  if (attachment.viewOnce) {
+    throw badRequest('Open view-once media through its burn endpoint');
+  }
+
+  const allowed = attachment.message
+    ? attachment.message.conversation.participants.some(
+        (participant) => participant.userId === userId,
+      )
+    : attachment.upload?.userId === userId;
+  if (!allowed) throw forbidden('You do not have access to this media');
+
+  const ttlSeconds = env.MEDIA_URL_TTL_SECONDS;
+  return {
+    url: mediaUrl(attachment.id, 'full', ttlSeconds),
+    thumbnailUrl: attachment.thumbnailKey
+      ? mediaUrl(attachment.id, 'thumb', ttlSeconds)
+      : null,
     expiresAt: new Date(Date.now() + ttlSeconds * 1000).toISOString(),
   };
 }

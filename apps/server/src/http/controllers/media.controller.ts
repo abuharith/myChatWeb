@@ -16,6 +16,15 @@ export async function complete(req: Request, res: Response) {
   res.json({ data });
 }
 
+export async function refreshUrls(req: Request, res: Response) {
+  if (!req.auth) throw unauthorized();
+  const data = await mediaService.refreshAttachmentUrls(
+    req.auth.userId,
+    req.params.id ?? '',
+  );
+  res.json({ data });
+}
+
 export async function viewOnce(req: Request, res: Response) {
   if (!req.auth) throw unauthorized();
   const data = await mediaService.openViewOnce(req.auth.userId, req.params.id ?? '');

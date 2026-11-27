@@ -164,6 +164,37 @@ try {
   await request(app).get(received.attachments[0].url).expect(200);
   pass('attachment linked to message and delivered to the recipient');
 
+  // Signed URLs expire; a member of the conversation must be able to re-sign
+  // them without reloading the whole message history.
+  const { mediaUrl } = await import('../src/lib/media-signing.ts');
+  const expired = await request(app).get(mediaUrl(image.id, 'full', -60)).expect(401);
+  assert.equal(expired.body.error.code, 'MEDIA_TOKEN_INVALID');
+
+  const refreshed = await request(app)
+    .get(`/v1/attachments/${image.id}/url`)
+    .set(bearer(tokenB))
+    .expect(200);
+  assert.ok(refreshed.body.data.url);
+  assert.match(refreshed.body.data.url, /token=/);
+  assert.ok(refreshed.body.data.thumbnailUrl);
+  await request(app).get(refreshed.body.data.url).expect(200);
+  await request(app).get(refreshed.body.data.thumbnailUrl).expect(200);
+
+  const outsider = await request(app)
+    .post('/v1/auth/register')
+    .send({
+      username: `media_c_${suffix}`,
+      displayName: 'Media Sable',
+      email: `media_c_${suffix}@voidlink.test`,
+      password: 'voidlink-test-pass',
+    })
+    .expect(201);
+  await request(app)
+    .get(`/v1/attachments/${image.id}/url`)
+    .set(bearer(outsider.body.data.accessToken))
+    .expect(403);
+  pass('expired URLs re-sign for members only');
+
   await request(app)
     .post(`/v1/conversations/${conversationId}/messages`)
     .set(bearer(tokenB))
@@ -210,7 +241,11 @@ try {
     .expect(201);
   assert.equal(onceMessage.body.data.message.viewOnce, true);
   assert.equal(onceMessage.body.data.message.attachments[0].url, null);
-  pass('view-once message exposes no media URL');
+  await request(app)
+    .get(`/v1/attachments/${once.id}/url`)
+    .set(bearer(tokenB))
+    .expect(400);
+  pass('view-once media cannot be re-signed');
 
   const opened = await request(app)
     .post(`/v1/attachments/${once.id}/view`)
@@ -255,7 +290,13 @@ try {
 
   console.log('\nALL MEDIA CHECKS PASSED');
 } finally {
-  await prisma.user.deleteMany({ where: { username: { in: users.map((user) => user.username) } } });
+  await prisma.user.deleteMany({
+    where: {
+      username: {
+        in: [...users.map((user) => user.username), `media_c_${suffix}`],
+      },
+    },
+  });
   await prisma.$disconnect();
   await s3Server.close();
 }

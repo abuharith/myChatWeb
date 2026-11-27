@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { AttachmentDTO, MessageDTO } from '@voidlink/shared';
 import { cn } from '../../../lib/cn';
 import { formatBytes } from '../../../lib/format';
+import { useAttachmentUrls } from '../../../hooks/useAttachmentUrls';
 import { Blurhash } from './Blurhash';
 import { VoiceNote } from './VoiceNote';
 
@@ -63,12 +64,20 @@ function MediaImage({
   onOpen: (url: string, kind: 'IMAGE' | 'VIDEO') => void;
 }) {
   const [loaded, setLoaded] = useState(false);
-  if (!attachment.url) return null;
+  const { url, refresh } = useAttachmentUrls(attachment);
+  if (!url) return null;
+
+  const open = async () => {
+    // A photo that never loaded is likely holding an expired token; re-sign
+    // before handing the URL to the lightbox.
+    const fresh = loaded ? null : await refresh(true);
+    onOpen(fresh?.url ?? url, 'IMAGE');
+  };
 
   return (
     <button
       type="button"
-      onClick={() => onOpen(attachment.url!, 'IMAGE')}
+      onClick={() => void open()}
       aria-label="Open photo"
       className="relative block w-[250px] max-w-full overflow-hidden border border-[color:var(--hairline)] bg-black/40"
       style={{
@@ -80,10 +89,14 @@ function MediaImage({
     >
       {attachment.blurhash && !loaded ? <Blurhash hash={attachment.blurhash} /> : null}
       <img
-        src={attachment.url}
+        src={url}
         alt="Shared photo"
         loading="lazy"
         onLoad={() => setLoaded(true)}
+        onError={() => {
+          setLoaded(false);
+          void refresh();
+        }}
         className={cn(
           'h-full w-full object-cover transition-opacity duration-300',
           loaded ? 'opacity-100' : 'opacity-0',
@@ -100,19 +113,27 @@ function MediaVideo({
   attachment: AttachmentDTO;
   onOpen: (url: string, kind: 'IMAGE' | 'VIDEO') => void;
 }) {
-  if (!attachment.url) return null;
+  const { url, thumbnailUrl, refresh } = useAttachmentUrls(attachment);
+  if (!url) return null;
+
+  const open = async () => {
+    const fresh = await refresh(true);
+    onOpen(fresh?.url ?? url, 'VIDEO');
+  };
+
   return (
     <button
       type="button"
-      onClick={() => onOpen(attachment.url!, 'VIDEO')}
+      onClick={() => void open()}
       aria-label="Play video"
       className="relative flex h-[160px] w-[250px] max-w-full items-center justify-center overflow-hidden border border-[color:var(--hairline)] bg-black/50"
     >
-      {attachment.thumbnailUrl ? (
+      {thumbnailUrl ? (
         <img
-          src={attachment.thumbnailUrl}
+          src={thumbnailUrl}
           alt="Video preview"
           loading="lazy"
+          onError={() => void refresh()}
           className="absolute inset-0 h-full w-full object-cover opacity-80"
         />
       ) : attachment.blurhash ? (

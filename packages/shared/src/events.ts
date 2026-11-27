@@ -72,6 +72,13 @@ export interface CompletedUploadDTO {
   attachment: AttachmentDTO;
 }
 
+/** Fresh signed delivery URLs for an attachment whose previous URLs expired. */
+export interface AttachmentUrlsDTO {
+  url: string;
+  thumbnailUrl: string | null;
+  expiresAt: string;
+}
+
 export interface OpenViewOnceDTO {
   url: string;
   expiresAt: string;

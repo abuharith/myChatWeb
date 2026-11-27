@@ -55,6 +55,7 @@ export function buildRouter(): Router {
     asyncHandler(mediaController.presign),
   );
   router.post('/uploads/:id/complete', authGuard, asyncHandler(mediaController.complete));
+  router.get('/attachments/:id/url', authGuard, asyncHandler(mediaController.refreshUrls));
   router.post('/attachments/:id/view', authGuard, asyncHandler(mediaController.viewOnce));
   // Token-signed delivery so <img>/<video> can load private objects without a header.
   router.get('/media/:id', asyncHandler(mediaController.stream));

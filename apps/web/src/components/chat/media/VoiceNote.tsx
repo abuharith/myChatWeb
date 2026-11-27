@@ -1,6 +1,7 @@
 import { useRef, useState } from 'react';
 import type { AttachmentDTO } from '@voidlink/shared';
 import { cn } from '../../../lib/cn';
+import { useAttachmentUrls } from '../../../hooks/useAttachmentUrls';
 
 const FALLBACK_BARS = Array.from({ length: 34 }, (_, index) =>
   0.22 + Math.abs(Math.sin(index * 1.7)) * 0.62,
@@ -19,6 +20,7 @@ export function VoiceNote({ attachment }: { attachment: AttachmentDTO }) {
   const [progress, setProgress] = useState(0);
   const [speed, setSpeed] = useState(1);
   const [durationMs, setDurationMs] = useState(attachment.durationMs ?? 0);
+  const { url, refresh } = useAttachmentUrls(attachment);
 
   const bars =
     attachment.waveform && attachment.waveform.length > 0
@@ -52,7 +54,7 @@ export function VoiceNote({ attachment }: { attachment: AttachmentDTO }) {
     if (audioRef.current) audioRef.current.playbackRate = next;
   };
 
-  if (!attachment.url) return null;
+  if (!url) return null;
 
   return (
     <div className="flex min-w-[210px] max-w-[300px] items-center gap-2 py-0.5">
@@ -115,8 +117,9 @@ export function VoiceNote({ attachment }: { attachment: AttachmentDTO }) {
 
       <audio
         ref={audioRef}
-        src={attachment.url}
+        src={url}
         preload="metadata"
+        onError={() => void refresh()}
         onTimeUpdate={(event) => {
           const audio = event.currentTarget;
           if (Number.isFinite(audio.duration) && audio.duration > 0) {
