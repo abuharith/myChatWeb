@@ -29,7 +29,10 @@ npm run dev            # http://localhost:3000
 Demo accounts: `ashka`, `rune`, `sable` — password `voidlink-dev`.
 Sign in from two browsers to watch presence, typing and read receipts move live.
 
-Checks: `npm run typecheck` · `npm test -w @voidlink/server` (needs PostgreSQL) ·
+Checks: `npm run verify` runs them all — shared/server/web typechecks, the server
+tests, `media:verify` and the web build — against the local embedded PostgreSQL
+(started on demand; this is what CI runs). Individually: `npm run typecheck` ·
+`npm test -w @voidlink/server` (needs PostgreSQL) ·
 `node apps/server/scripts/verify-search.mjs` · `node apps/server/scripts/smoke-realtime.mjs` ·
 `npm run media:verify -w @voidlink/server` (self-contained: spins up S3 + FFmpeg).
 

@@ -8,9 +8,6 @@ jobs:
     name: Typecheck, test, media and build
     runs-on: ubuntu-latest
     timeout-minutes: 20
-    env:
-      # Matches the embedded PostgreSQL started below.
-      DATABASE_URL: postgresql://voidlink:voidlink@127.0.0.1:55432/voidlink
     steps:
       - uses: actions/checkout@v4
 
@@ -22,32 +19,7 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Generate Prisma client
-        run: npx prisma generate --schema apps/server/prisma/schema.prisma
-
-      - name: Start PostgreSQL
-        run: |
-          node apps/server/scripts/dev-db.mjs > /tmp/postgres.log 2>&1 &
-          timeout 180 bash -c 'until grep -q PG_READY /tmp/postgres.log; do sleep 1; done'
-          cat /tmp/postgres.log
-
-      - name: Apply migrations
-        run: npx prisma migrate deploy --schema apps/server/prisma/schema.prisma
-
-      - name: Typecheck shared
-        run: npm run typecheck -w @voidlink/shared
-
-      - name: Typecheck server
-        run: npm run typecheck -w @voidlink/server
-
-      - name: Typecheck web
-        run: npm run typecheck -w @voidlink/web
-
-      - name: Server tests
-        run: npm test -w @voidlink/server
-
-      - name: Media verification
-        run: npm run media:verify -w @voidlink/server
-
-      - name: Web build
-        run: npm run build -w @voidlink/web
+      # The same script used locally: starts the embedded PostgreSQL, applies
+      # migrations, then runs the typechecks, tests, media verification and build.
+      - name: Verify
+        run: npm run verify
