@@ -1,8 +1,13 @@
-import type { AttachmentKind, MessageDTO, SendMessageInput } from '@voidlink/shared';
+import type {
+  AttachmentKind,
+  DeleteMessageInput,
+  MessageDTO,
+  SendMessageInput,
+} from '@voidlink/shared';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors';
-import { emitMessage } from '../lib/realtime';
+import { emitMessage, emitMessageDeleted, emitMessageDeletedToUser } from '../lib/realtime';
 import { prisma } from '../lib/prisma';
-import { createMessage } from '../repositories/messages.repo';
+import { createMessage, findMessage } from '../repositories/messages.repo';
 import { findBlockBetween } from '../repositories/users.repo';
 import { isParticipant, getParticipantIds } from './conversation.service';
 import { toMessage } from './dto';
@@ -111,4 +116,75 @@ export async function send(userId: string, input: SendMessageInput): Promise<Sen
   if (!duplicate) emitMessage(input.conversationId, message);
 
   return { message, duplicate };
+}
+
+export interface DeleteResult {
+  conversationId: string;
+  messageId: string;
+  scope: DeleteMessageInput['scope'];
+  /** Tombstone for delete-for-everyone; null when the message was only hidden. */
+  message: MessageDTO | null;
+}
+
+/**
+ * Deletes a message for the caller only (`me`) or for the whole conversation
+ * (`everyone`, sender only). Delete-for-everyone tombstones the row, which is
+ * what makes the media sweep remove its attachments from object storage.
+ */
+export async function remove(
+  userId: string,
+  messageId: string,
+  input: DeleteMessageInput,
+): Promise<DeleteResult> {
+  const message = await prisma.message.findUnique({
+    where: { id: messageId },
+    include: {
+      conversation: {
+        include: { participants: { where: { leftAt: null }, select: { userId: true } } },
+      },
+    },
+  });
+  if (!message) throw notFound('Message not found');
+
+  const participant = message.conversation.participants.some((row) => row.userId === userId);
+  if (!participant) throw forbidden('You are not part of this conversation');
+
+  if (input.scope === 'me') {
+    await prisma.messageHide.upsert({
+      where: { messageId_userId: { messageId, userId } },
+      create: { messageId, userId },
+      update: {},
+    });
+    const result: DeleteResult = {
+      conversationId: message.conversationId,
+      messageId,
+      scope: 'me',
+      message: null,
+    };
+    emitMessageDeletedToUser(userId, { ...result, deletedBy: userId });
+    return result;
+  }
+
+  if (message.senderId !== userId) {
+    throw forbidden('Only the sender can delete this message for everyone');
+  }
+
+  if (!message.deletedForEveryone) {
+    await prisma.message.update({
+      where: { id: messageId },
+      data: { deletedForEveryone: true, deletedAt: new Date(), body: null },
+    });
+  }
+
+  const row = await findMessage(messageId);
+  if (!row) throw notFound('Message not found');
+  const tombstone = toMessage(row, userId);
+  const result: DeleteResult = {
+    conversationId: message.conversationId,
+    messageId,
+    scope: 'everyone',
+    message: tombstone,
+  };
+  emitMessageDeleted(message.conversationId, { ...result, deletedBy: userId });
+  return result;
 }

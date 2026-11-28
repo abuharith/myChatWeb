@@ -3,6 +3,7 @@ import type {
   AttachmentDTO,
   ConversationDTO,
   MessageDTO,
+  MessageDeletedUpdate,
   MessagePage,
   PresenceUpdate,
   ReceiptState,
@@ -50,6 +51,8 @@ interface ChatState {
     options?: { viewOnce?: boolean },
   ) => Promise<void>;
   retry: (clientId: string) => void;
+  deleteMessage: (messageId: string, scope: 'me' | 'everyone') => Promise<void>;
+  applyMessageDeleted: (update: MessageDeletedUpdate) => void;
   burnAttachment: (messageId: string, attachmentId: string) => void;
   markRead: (conversationId: string) => void;
   receive: (message: MessageDTO) => void;
@@ -191,6 +194,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     connectRealtime(token, {
       onMessage: (message) => get().receive(message),
+      onMessageDeleted: (update) => get().applyMessageDeleted(update),
       onReceipt: (update) => get().applyReceipt(update),
       onTyping: (update) => get().applyTyping(update),
       onConversation: (conversation) => get().addConversation(conversation),
@@ -416,6 +420,47 @@ export const useChatStore = create<ChatState>((set, get) => ({
       },
       (ack: SendAck) => settleAck(set, clientId, ack),
     );
+  },
+
+  deleteMessage: async (messageId, scope) => {
+    try {
+      const result = await api.delete<{
+        conversationId: string;
+        messageId: string;
+        scope: 'me' | 'everyone';
+        message: MessageDTO | null;
+      }>(`/v1/messages/${messageId}`, { scope });
+      get().applyMessageDeleted({
+        ...result,
+        deletedBy: get().userId ?? '',
+      });
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : 'Could not delete this message',
+      });
+    }
+  },
+
+  applyMessageDeleted: (update) => {
+    set((state) => {
+      const list = state.messages[update.conversationId] ?? [];
+      const messages =
+        update.scope === 'me'
+          ? list.filter((message) => message.id !== update.messageId)
+          : list.map((message) =>
+              message.id === update.messageId
+                ? (update.message ?? {
+                    ...message,
+                    deletedForEveryone: true,
+                    body: null,
+                    attachments: [],
+                  })
+                : message,
+            );
+      return {
+        messages: { ...state.messages, [update.conversationId]: messages },
+      };
+    });
   },
 
   burnAttachment: (messageId, attachmentId) => {

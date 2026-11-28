@@ -291,12 +291,56 @@ try {
   const doomedMessage = await request(app)
     .post(`/v1/conversations/${conversationId}/messages`)
     .set(bearer(tokenA))
-    .send({ clientId: crypto.randomUUID(), attachmentIds: [doomed.id], body: '' })
+    .send({ clientId: crypto.randomUUID(), attachmentIds: [doomed.id], body: 'delete me' })
     .expect(201);
-  await prisma.message.update({
-    where: { id: doomedMessage.body.data.message.id },
-    data: { deletedForEveryone: true },
-  });
+  const doomedId = doomedMessage.body.data.message.id;
+  const deletePath = `/v1/messages/${doomedId}`;
+
+  // Only the sender may tombstone a message for the whole conversation.
+  await request(app)
+    .delete(deletePath)
+    .set(bearer(tokenB))
+    .send({ scope: 'everyone' })
+    .expect(403);
+  await request(app)
+    .delete(deletePath)
+    .set(bearer(outsider.body.data.accessToken))
+    .send({ scope: 'me' })
+    .expect(403);
+  pass('only participants can delete, and only the sender can delete for everyone');
+
+  // Delete-for-me hides the message from the caller only; the media stays
+  // because the other participant still has it.
+  await request(app).delete(deletePath).set(bearer(tokenB)).send({ scope: 'me' }).expect(200);
+  const bHistory = await request(app)
+    .get(`/v1/conversations/${conversationId}/messages`)
+    .set(bearer(tokenB))
+    .expect(200);
+  assert.ok(
+    !bHistory.body.data.messages.some((message) => message.id === doomedId),
+    'delete-for-me left the message in the caller history',
+  );
+  const aHistory = await request(app)
+    .get(`/v1/conversations/${conversationId}/messages`)
+    .set(bearer(tokenA))
+    .expect(200);
+  assert.ok(
+    aHistory.body.data.messages.some((message) => message.id === doomedId),
+    'delete-for-me hid the message for another participant',
+  );
+  await headObject(doomedRow.storageKey);
+  pass('delete-for-me hides the message for one account without deleting media');
+
+  const deleted = await request(app)
+    .delete(deletePath)
+    .set(bearer(tokenA))
+    .send({ scope: 'everyone' })
+    .expect(200);
+  assert.equal(deleted.body.data.scope, 'everyone');
+  assert.equal(deleted.body.data.message.deletedForEveryone, true);
+  assert.equal(deleted.body.data.message.body, null);
+  assert.deepEqual(deleted.body.data.message.attachments, []);
+
   const deletedSweep = await sweepMediaLifecycle();
   assert.ok(deletedSweep.attachmentsPurged >= 1, 'sweep did not purge deleted message media');
   await missing(doomedRow.storageKey);
@@ -304,13 +348,13 @@ try {
   assert.ok((await attachmentRow(doomed.id)).purgedAt, 'deleted attachment was not marked purged');
   const deletedHistory = await request(app)
     .get(`/v1/conversations/${conversationId}/messages`)
-    .set(bearer(tokenB))
+    .set(bearer(tokenA))
     .expect(200);
-  const deletedView = deletedHistory.body.data.messages.find(
-    (message) => message.id === doomedMessage.body.data.message.id,
-  );
-  assert.equal(deletedView.attachments[0].url, null, 'deleted media still handed out a url');
-  pass('deleted message media is removed from storage and no longer signed');
+  const deletedView = deletedHistory.body.data.messages.find((message) => message.id === doomedId);
+  assert.equal(deletedView.deletedForEveryone, true);
+  assert.equal(deletedView.body, null);
+  assert.deepEqual(deletedView.attachments, []);
+  pass('delete-for-everyone tombstones the message and the sweep removes its media');
 
   const orphan = await uploadAs(tokenA, 'IMAGE', 'image/jpeg', originalImage);
   const orphanRow = await attachmentRow(orphan.id);

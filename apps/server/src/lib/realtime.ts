@@ -4,6 +4,7 @@ import type {
   ChatServerEvents,
   ConversationDTO,
   MessageDTO,
+  MessageDeletedUpdate,
   PresenceClientEvents,
   PresenceServerEvents,
   PresenceUpdate,
@@ -41,6 +42,15 @@ export const rooms = {
 /** Best-effort fan-out: REST writes still succeed when no socket server is attached (tests). */
 export function emitMessage(conversationId: string, message: MessageDTO) {
   chatServer?.to(rooms.conversation(conversationId)).emit('message:new', message);
+}
+
+export function emitMessageDeleted(conversationId: string, update: MessageDeletedUpdate) {
+  chatServer?.to(rooms.conversation(conversationId)).emit('message:deleted', update);
+}
+
+/** A per-user hide only reaches that account's own tabs. */
+export function emitMessageDeletedToUser(userId: string, update: MessageDeletedUpdate) {
+  chatServer?.to(rooms.user(userId)).emit('message:deleted', update);
 }
 
 export function emitReceipts(update: ReceiptUpdate) {

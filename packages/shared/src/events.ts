@@ -130,6 +130,15 @@ export interface ReceiptUpdate {
   state: ReceiptState;
 }
 
+export interface MessageDeletedUpdate {
+  conversationId: string;
+  messageId: string;
+  scope: 'me' | 'everyone';
+  deletedBy: string;
+  /** Tombstone for everyone; null when the message was only hidden for the caller. */
+  message: MessageDTO | null;
+}
+
 export interface TypingUpdate {
   conversationId: string;
   userId: string;
@@ -157,6 +166,7 @@ export interface SendAck {
 /** /chat namespace */
 export interface ChatServerEvents {
   'message:new': (message: MessageDTO) => void;
+  'message:deleted': (update: MessageDeletedUpdate) => void;
   'receipt:update': (update: ReceiptUpdate) => void;
   typing: (update: TypingUpdate) => void;
   'conversation:new': (conversation: ConversationDTO) => void;

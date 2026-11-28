@@ -62,6 +62,13 @@ export const completeUploadSchema = z.object({
 
 export type SendMessageInput = z.infer<typeof sendMessageSchema>;
 
+/** `me` hides the message for the caller; `everyone` tombstones it for the chat. */
+export const deleteMessageSchema = z.object({
+  scope: z.enum(['me', 'everyone']).default('me'),
+});
+
+export type DeleteMessageInput = z.infer<typeof deleteMessageSchema>;
+
 export const receiptSchema = z.object({
   conversationId: z.string().min(1),
   messageIds: z.array(z.string().min(1)).min(1).max(100),

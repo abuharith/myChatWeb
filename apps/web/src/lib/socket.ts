@@ -5,6 +5,7 @@ import type {
   ChatServerEvents,
   ConversationDTO,
   MessageDTO,
+  MessageDeletedUpdate,
   PresenceClientEvents,
   PresenceServerEvents,
   PresenceUpdate,
@@ -17,6 +18,7 @@ export type PresenceSocket = Socket<PresenceServerEvents, PresenceClientEvents>;
 
 export interface RealtimeHandlers {
   onMessage: (message: MessageDTO) => void;
+  onMessageDeleted: (update: MessageDeletedUpdate) => void;
   onReceipt: (update: ReceiptUpdate) => void;
   onTyping: (update: TypingUpdate) => void;
   onConversation: (conversation: ConversationDTO) => void;
@@ -72,6 +74,7 @@ export function connectRealtime(token: string, handlers: RealtimeHandlers): void
   chatSocket.on('connect_error', onConnectError);
   presenceSocket.on('connect_error', onConnectError);
   chatSocket.on('message:new', handlers.onMessage);
+  chatSocket.on('message:deleted', handlers.onMessageDeleted);
   chatSocket.on('receipt:update', handlers.onReceipt);
   chatSocket.on('typing', handlers.onTyping);
   chatSocket.on('conversation:new', handlers.onConversation);

@@ -1,6 +1,7 @@
 import type { Request, Response } from 'express';
 import {
   createConversationSchema,
+  deleteMessageSchema,
   messageQuerySchema,
   receiptSchema,
   sendMessageSchema,
@@ -45,6 +46,13 @@ export async function markRead(req: Request, res: Response) {
     req.params.id ?? '',
     input.messageIds,
   );
+  res.json({ data: result });
+}
+
+export async function deleteMessage(req: Request, res: Response) {
+  if (!req.auth) throw unauthorized();
+  const input = deleteMessageSchema.parse(req.body ?? {});
+  const result = await messageService.remove(req.auth.userId, req.params.id ?? '', input);
   res.json({ data: result });
 }
 

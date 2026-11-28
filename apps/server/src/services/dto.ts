@@ -88,13 +88,15 @@ export function toAttachmentDTO(row: Attachment): AttachmentDTO {
 
 export function toMessage(row: MessageRow, viewerId: string): MessageDTO {
   const mine = row.senderId === viewerId;
+  const deleted = row.deletedForEveryone;
   return {
     id: row.id,
     clientId: row.clientId,
     conversationId: row.conversationId,
     seq: row.seq.toString(),
     type: row.type,
-    body: row.body,
+    // A tombstone must not keep leaking text or media metadata.
+    body: deleted ? null : row.body,
     encrypted: row.encrypted,
     sender: row.sender ? toUserSummary(row.sender) : null,
     replyToId: row.replyToId,
@@ -105,7 +107,7 @@ export function toMessage(row: MessageRow, viewerId: string): MessageDTO {
       userId: receipt.userId,
       state: receipt.state,
     })),
-    attachments: row.attachments.map(toAttachmentDTO),
+    attachments: deleted ? [] : row.attachments.map(toAttachmentDTO),
     viewOnce: row.viewOnce,
     viewedAt: row.viewedAt ? row.viewedAt.toISOString() : null,
     status: mine ? aggregateStatus(row.receipts, viewerId) : null,

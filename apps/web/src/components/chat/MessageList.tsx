@@ -28,6 +28,7 @@ export function MessageList({ conversation }: { conversation: ConversationDTO })
   const typing = useChatStore((state) => state.typing[conversation.id] ?? []);
   const me = useAuthStore((state) => state.user);
   const burnAttachment = useChatStore((state) => state.burnAttachment);
+  const removeMessage = useChatStore((state) => state.deleteMessage);
 
   const [lightbox, setLightbox] = useState<
     (LightboxItem & { messageId?: string; attachmentId?: string }) | null
@@ -110,7 +111,7 @@ export function MessageList({ conversation }: { conversation: ConversationDTO })
           const error = sendErrors[message.clientId];
 
           return (
-            <div key={message.id}>
+            <div key={message.id} className="group/message">
               {showDay ? (
                 <div className="my-5 flex items-center gap-3">
                   <span className="h-px flex-1 bg-[linear-gradient(90deg,transparent,rgba(201,162,39,0.18))]" />
@@ -131,19 +132,55 @@ export function MessageList({ conversation }: { conversation: ConversationDTO })
                 time={formatTime(message.createdAt)}
                 status={deliveryOf(message)}
               >
-                <MediaMessage
-                  message={message}
-                  onOpen={(url, kind, attachmentId) =>
-                    setLightbox({ url, kind, viewOnce: false, attachmentId })
-                  }
-                  onViewOnce={(attachment) => void openViewOnce(message, attachment)}
-                />
-                {message.body ? (
-                  <span className={cn('block', message.attachments.length > 0 && 'mt-1.5')}>
-                    {message.body}
-                  </span>
-                ) : null}
+                {message.deletedForEveryone ? (
+                  <span className="italic text-bone/45">This message was deleted</span>
+                ) : (
+                  <>
+                    <MediaMessage
+                      message={message}
+                      onOpen={(url, kind, attachmentId) =>
+                        setLightbox({ url, kind, viewOnce: false, attachmentId })
+                      }
+                      onViewOnce={(attachment) => void openViewOnce(message, attachment)}
+                    />
+                    {message.body ? (
+                      <span className={cn('block', message.attachments.length > 0 && 'mt-1.5')}>
+                        {message.body}
+                      </span>
+                    ) : null}
+                  </>
+                )}
               </Bubble>
+
+              {!message.id.startsWith('temp-') && !message.deletedForEveryone ? (
+                <div
+                  className={cn(
+                    'mt-1 flex gap-3 opacity-0 transition-opacity focus-within:opacity-100 group-hover/message:opacity-100',
+                    mine ? 'justify-end' : 'justify-start',
+                  )}
+                >
+                  <button
+                    type="button"
+                    onClick={() => void removeMessage(message.id, 'me')}
+                    className="font-mono text-[0.6rem] uppercase tracking-[0.12em] text-bone/40 hover:text-[color:var(--ember)]"
+                  >
+                    Delete for me
+                  </button>
+                  {mine ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm('Delete this message for everyone? This cannot be undone.')) {
+                          void removeMessage(message.id, 'everyone');
+                        }
+                      }}
+                      className="font-mono text-[0.6rem] uppercase tracking-[0.12em] text-bone/40 hover:text-[color:var(--ember)]"
+                    >
+                      Delete for everyone
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
 
               {error ? (
                 <div className={cn('mt-1 flex items-center gap-2', mine ? 'justify-end' : 'justify-start')}>

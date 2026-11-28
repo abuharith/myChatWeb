@@ -73,6 +73,7 @@ export function buildRouter(): Router {
   );
   router.get('/conversations/:id/messages', authGuard, asyncHandler(conversationController.messages));
   router.post('/conversations/:id/messages', authGuard, asyncHandler(conversationController.sendMessage));
+  router.delete('/messages/:id', authGuard, asyncHandler(conversationController.deleteMessage));
   router.post('/conversations/:id/read', authGuard, asyncHandler(conversationController.markRead));
 
   return router;

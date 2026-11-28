@@ -115,7 +115,7 @@ export async function lastMessages(ids: string[]) {
 
 export async function preview(conversationId: string, userId: string) {
   const message = await prisma.message.findFirst({
-    where: { conversationId, hides: { none: { userId } } },
+    where: { conversationId, hides: { none: { userId } }, deletedForEveryone: false },
     orderBy: { seq: 'desc' },
     select: { body: true, type: true, senderId: true, createdAt: true },
   });
