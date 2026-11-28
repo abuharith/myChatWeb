@@ -429,6 +429,7 @@ export async function openViewOnce(userId: string, attachmentId: string): Promis
   });
 
   if (!attachment) throw notFound('Attachment not found');
+  if (attachment.purgedAt) throw notFound('This media has been deleted');
   if (!attachment.viewOnce) throw badRequest('This attachment is not view-once');
   if (attachment.kind !== 'IMAGE' && attachment.kind !== 'VIDEO') {
     throw badRequest('Only photos and videos can be view-once');
@@ -484,6 +485,7 @@ export async function refreshAttachmentUrls(
   });
 
   if (!attachment) throw notFound('Attachment not found');
+  if (attachment.purgedAt) throw notFound('This media has been deleted');
   if (attachment.viewOnce) {
     throw badRequest('Open view-once media through its burn endpoint');
   }
@@ -524,6 +526,7 @@ export async function resolveMedia(
 
   const attachment = await prisma.attachment.findUnique({ where: { id: attachmentId } });
   if (!attachment) throw notFound('Attachment not found');
+  if (attachment.purgedAt) throw notFound('This media has been deleted');
 
   const key = variant === 'thumb' ? attachment.thumbnailKey : attachment.storageKey;
   if (!key) throw notFound('This attachment has no thumbnail');

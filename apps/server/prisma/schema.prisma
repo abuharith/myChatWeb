@@ -713,11 +713,15 @@ model Attachment {
 
   viewOnce      Boolean        @default(false)
   openedAt      DateTime?      // view-once burn timestamp
+  /// Set once the media sweep removed the storage objects (or deleted the row).
+  purgedAt      DateTime?
   downloadCount Int            @default(0)
 
   createdAt     DateTime       @default(now())
 
   @@index([messageId])
+  @@index([viewOnce, openedAt])
+  @@index([purgedAt])
   @@map("attachments")
 }
 

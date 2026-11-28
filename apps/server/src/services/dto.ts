@@ -66,6 +66,7 @@ function aggregateStatus(
 }
 
 export function toAttachmentDTO(row: Attachment): AttachmentDTO {
+  const purged = Boolean(row.purgedAt);
   return {
     id: row.id,
     kind: row.kind as AttachmentKind,
@@ -77,9 +78,9 @@ export function toAttachmentDTO(row: Attachment): AttachmentDTO {
     blurhash: row.blurhash,
     waveform: Array.isArray(row.waveform) ? (row.waveform as number[]) : null,
     // View-once media is never exposed here; it is issued only by the burn endpoint.
-    url: row.viewOnce ? null : mediaUrl(row.id, 'full'),
+    url: row.viewOnce || purged ? null : mediaUrl(row.id, 'full'),
     thumbnailUrl:
-      !row.viewOnce && row.thumbnailKey ? mediaUrl(row.id, 'thumb') : null,
+      !row.viewOnce && !purged && row.thumbnailKey ? mediaUrl(row.id, 'thumb') : null,
     viewOnce: row.viewOnce,
     openedAt: row.openedAt ? row.openedAt.toISOString() : null,
   };

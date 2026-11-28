@@ -5,6 +5,7 @@ import { logger } from './lib/logger';
 import { prisma } from './lib/prisma';
 import { ensureBucket } from './lib/storage';
 import { createSocketServers } from './sockets';
+import { startMediaSweep } from './services/media-lifecycle.service';
 
 const app = createApp();
 const httpServer = createServer(app);
@@ -14,7 +15,9 @@ const storageReady = env.S3_EMBEDDED
   ? import('./lib/embedded-s3').then((module) => module.startEmbeddedS3()).then(() => ensureBucket())
   : ensureBucket();
 
-void storageReady.catch((error) =>
+void storageReady
+  .then(() => startMediaSweep())
+  .catch((error) =>
   logger.warn('media bucket unavailable; uploads will fail until storage is reachable', {
     error: error instanceof Error ? error.message : String(error),
   }),

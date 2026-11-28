@@ -23,6 +23,11 @@ process.env.S3_SECRET_ACCESS_KEY = 'S3RVER';
 process.env.S3_BUCKET = 'voidlink-media';
 process.env.FFMPEG_PATH = ffmpegPath;
 process.env.FFPROBE_PATH = ffprobePath;
+// The lifecycle sweep is invoked explicitly here; grace windows are zero so the
+// burn/deletion rules are observable without waiting for wall-clock time.
+process.env.MEDIA_SWEEP_DISABLED = 'true';
+process.env.MEDIA_VIEW_ONCE_GRACE_SECONDS = '0';
+process.env.MEDIA_ORPHAN_GRACE_SECONDS = '0';
 
 const { default: S3rver } = await import('s3rver');
 const request = (await import('supertest')).default;
@@ -258,6 +263,93 @@ try {
     .expect(410);
   assert.equal(again.body.error.code, 'ATTACHMENT_VIEWED');
   pass('view-once burned after first open and cannot reopen');
+
+  // ── media lifecycle: burned and deleted media leave object storage ──────
+  const { sweepMediaLifecycle } = await import('../src/services/media-lifecycle.service.ts');
+  const { headObject } = await import('../src/lib/storage.ts');
+  const missing = async (key) => {
+    await assert.rejects(() => headObject(key), undefined, `object ${key} still exists`);
+  };
+  const attachmentRow = (id) => prisma.attachment.findUnique({ where: { id } });
+
+  const onceRow = await attachmentRow(once.id);
+  await headObject(onceRow.storageKey); // readable during the delivery grace window
+  const burned = await sweepMediaLifecycle();
+  assert.ok(burned.attachmentsPurged >= 1, 'sweep did not purge the burned view-once');
+  await missing(onceRow.storageKey);
+  await missing(onceRow.thumbnailKey);
+  const burnedRow = await attachmentRow(once.id);
+  assert.ok(burnedRow.purgedAt, 'burned attachment was not marked purged');
+  // The token is still within its TTL, but the row is already tombstoned.
+  await request(app).get(opened.body.data.url).expect(404);
+  const afterBurn = await sweepMediaLifecycle();
+  assert.equal(afterBurn.attachmentsPurged, 0, 'sweep purged the same attachment twice');
+  pass('view-once burn deletes the stored object after delivery and stops streaming');
+
+  const doomed = await uploadAs(tokenA, 'IMAGE', 'image/jpeg', originalImage);
+  const doomedRow = await attachmentRow(doomed.id);
+  const doomedMessage = await request(app)
+    .post(`/v1/conversations/${conversationId}/messages`)
+    .set(bearer(tokenA))
+    .send({ clientId: crypto.randomUUID(), attachmentIds: [doomed.id], body: '' })
+    .expect(201);
+  await prisma.message.update({
+    where: { id: doomedMessage.body.data.message.id },
+    data: { deletedForEveryone: true },
+  });
+  const deletedSweep = await sweepMediaLifecycle();
+  assert.ok(deletedSweep.attachmentsPurged >= 1, 'sweep did not purge deleted message media');
+  await missing(doomedRow.storageKey);
+  await missing(doomedRow.thumbnailKey);
+  assert.ok((await attachmentRow(doomed.id)).purgedAt, 'deleted attachment was not marked purged');
+  const deletedHistory = await request(app)
+    .get(`/v1/conversations/${conversationId}/messages`)
+    .set(bearer(tokenB))
+    .expect(200);
+  const deletedView = deletedHistory.body.data.messages.find(
+    (message) => message.id === doomedMessage.body.data.message.id,
+  );
+  assert.equal(deletedView.attachments[0].url, null, 'deleted media still handed out a url');
+  pass('deleted message media is removed from storage and no longer signed');
+
+  const orphan = await uploadAs(tokenA, 'IMAGE', 'image/jpeg', originalImage);
+  const orphanRow = await attachmentRow(orphan.id);
+  await prisma.attachment.update({
+    where: { id: orphan.id },
+    data: { createdAt: new Date(Date.now() - 60_000) },
+  });
+  const orphanSweep = await sweepMediaLifecycle();
+  assert.ok(orphanSweep.attachmentsPurged >= 1, 'sweep did not reclaim the never-sent attachment');
+  await missing(orphanRow.storageKey);
+  assert.equal(await attachmentRow(orphan.id), null, 'orphan attachment row survived');
+  pass('never-sent attachment and its upload row are reclaimed');
+
+  const abandoned = await request(app)
+    .post('/v1/uploads/presign')
+    .set(bearer(tokenA))
+    .send({ kind: 'FILE', mimeType: 'text/plain', sizeBytes: 12 })
+    .expect(201);
+  await putToPresignedUrl(
+    abandoned.body.data,
+    Buffer.from('abandoned!!!'),
+    'text/plain',
+  );
+  await prisma.upload.update({
+    where: { id: abandoned.body.data.uploadId },
+    data: { expiresAt: new Date(Date.now() - 60_000) },
+  });
+  const uploadSweep = await sweepMediaLifecycle();
+  assert.ok(uploadSweep.uploadsExpired >= 1, 'sweep did not expire the abandoned upload');
+  await missing(abandoned.body.data.key);
+  const expiredRow = await prisma.upload.findUnique({
+    where: { id: abandoned.body.data.uploadId },
+  });
+  assert.equal(expiredRow.status, 'EXPIRED');
+  pass('abandoned presigned uploads are deleted and marked EXPIRED');
+
+  await request(app).get(image.url).expect(200);
+  assert.equal((await attachmentRow(image.id)).purgedAt, null);
+  pass('live attachments survive the sweep');
 
   await request(app)
     .post('/v1/uploads/presign')

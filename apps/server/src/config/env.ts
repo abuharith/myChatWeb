@@ -41,6 +41,17 @@ const schema = z.object({
   UPLOAD_URL_TTL_SECONDS: z.coerce.number().int().min(60).max(3600).default(900),
   MEDIA_URL_TTL_SECONDS: z.coerce.number().int().min(60).max(86_400).default(3600),
   MEDIA_SIGNING_SECRET: z.string().optional(),
+  /** Background job that deletes burned view-once / deleted / orphaned media. */
+  MEDIA_SWEEP_DISABLED: z
+    .string()
+    .default('false')
+    .transform((value) => value === 'true'),
+  MEDIA_SWEEP_INTERVAL_SECONDS: z.coerce.number().int().min(30).default(3600),
+  MEDIA_SWEEP_BATCH: z.coerce.number().int().min(1).max(1000).default(200),
+  /** Keep burned view-once objects long enough for the issued URL to be used. */
+  MEDIA_VIEW_ONCE_GRACE_SECONDS: z.coerce.number().int().min(0).default(300),
+  /** Unsent attachments (uploaded but never posted) are reclaimed after this. */
+  MEDIA_ORPHAN_GRACE_SECONDS: z.coerce.number().int().min(0).default(86_400),
   FFMPEG_PATH: z.string().default('ffmpeg'),
   FFPROBE_PATH: z.string().default('ffprobe'),
 });

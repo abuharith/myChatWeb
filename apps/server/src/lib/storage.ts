@@ -3,6 +3,7 @@ import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import {
   CreateBucketCommand,
+  DeleteObjectCommand,
   GetObjectCommand,
   HeadBucketCommand,
   HeadObjectCommand,
@@ -68,6 +69,11 @@ export function presignGet(key: string, expiresIn = env.MEDIA_URL_TTL_SECONDS): 
 
 export async function headObject(key: string) {
   return s3.send(new HeadObjectCommand({ Bucket: mediaBucket, Key: key }));
+}
+
+/** S3 delete is idempotent: deleting a missing key succeeds. */
+export async function deleteObject(key: string): Promise<void> {
+  await s3.send(new DeleteObjectCommand({ Bucket: mediaBucket, Key: key }));
 }
 
 export async function getObject(key: string, range?: string) {
