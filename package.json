@@ -11,6 +11,7 @@
     "build": "npm run build -w @voidlink/web",
     "preview": "npm run preview -w @voidlink/web",
     "typecheck": "npm run typecheck -w @voidlink/web",
+    "verify": "node scripts/verify.mjs",
     "prisma:validate": "cd apps/server && prisma validate",
     "prisma:generate": "cd apps/server && prisma generate"
   },
